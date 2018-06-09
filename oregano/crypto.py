@@ -1,5 +1,5 @@
 from Crypto import Random
-from Crypto.Util.number import bytes_to_long, long_to_bytes
+from Crypto.Util.number import ceil_div, bytes_to_long, long_to_bytes, size
 
 DH_MODULUS = bytes_to_long(
 "FFFFFFFFFFFFFFFFC90FDAA22168C234C4C6628B80DC1CD129024E08"
@@ -44,3 +44,32 @@ class DiffieHellman(object):
         result = pow(public_int, secret_int, DH_MODULUS)
 
         return long_to_bytes(result)
+
+class LowLevelSignature(object):
+
+    __slots__ = ("_key", )
+
+    def __init__(self, key):
+        self._key = key
+
+    def sign(self, message):
+        from Crypto.Util.py3compat import bord, _copy_bytes
+
+        modBits = size(self._key.n)
+        k = ceil_div(modBits, 8)
+        mLen = len(message)
+
+        # Step 1
+        if mLen > k - 11:
+            raise ValueError("Plaintext is too long.")
+        # Step 2a
+        ps = b'\xff' * (k - mLen - 3)
+        # Step 2b
+        em = b'\x00\x01' + ps + b'\x00' + _copy_bytes(None, None, message)
+        # Step 3a (OS2IP)
+        em_int = bytes_to_long(em)
+        # Step 3b (RSAEP)
+        m_int = self._key._decrypt(em_int)
+        # Step 3c (I2OSP)
+        c = long_to_bytes(m_int, k)
+        return c

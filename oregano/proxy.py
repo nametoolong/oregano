@@ -7,8 +7,6 @@ from gnutls.crypto import X509Certificate, X509PrivateKey
 from gnutls.connection import TLSContext, X509Credentials
 from gnutls.constants import X509_FMT_DER
 
-from Crypto import Random
-from Crypto.Cipher import PKCS1_v1_5
 from Crypto.Hash import SHA1
 from Crypto.IO import PEM
 from Crypto.PublicKey import RSA
@@ -17,6 +15,7 @@ from Crypto.Util.asn1 import DerSequence
 from mesona.proxy import MITMServer, MITMHandler, MITMSettings, send_range_safe
 
 import oregano
+from oregano.crypto import LowLevelSignature
 from oregano.onion import *
 
 HASH_LEN = 20
@@ -51,34 +50,6 @@ Expires: {expires}
 
 class ORError(Exception):
     pass
-
-class LowLevelSignature:
-    def __init__(self, key):
-        self._key = key
-
-    def sign(self, message):
-        from Crypto.Util.number import ceil_div, bytes_to_long, long_to_bytes
-        from Crypto.Util.py3compat import bord, _copy_bytes
-        import Crypto.Util.number
-
-        modBits = Crypto.Util.number.size(self._key.n)
-        k = ceil_div(modBits, 8)
-        mLen = len(message)
-
-        # Step 1
-        if mLen > k - 11:
-            raise ValueError("Plaintext is too long.")
-        # Step 2a
-        ps = b'\xff' * (k - mLen - 3)
-        # Step 2b
-        em = b'\x00\x01' + ps + b'\x00' + _copy_bytes(None, None, message)
-        # Step 3a (OS2IP)
-        em_int = bytes_to_long(em)
-        # Step 3b (RSAEP)
-        m_int = self._key._decrypt(em_int)
-        # Step 3c (I2OSP)
-        c = long_to_bytes(m_int, k)
-        return c
 
 class ORMITMServer(MITMServer):
     def __init__(self, config, bind_and_activate=True):
