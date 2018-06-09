@@ -9,7 +9,7 @@ from Crypto.Cipher import AES, PKCS1_OAEP
 from Crypto.Hash import SHA1
 from Crypto.Util import Counter
 
-from oregano.crypto import DiffieHellman
+from oregano.crypto import DiffieHellman, DH_LEN
 from oregano.proxy import ORError
 
 COMMAND_PADDING = "\x00"
@@ -45,7 +45,6 @@ PAYLOAD_LEN = 509
 MAX_DATA_LEN = PAYLOAD_LEN - 11
 
 KEY_LEN = 16
-DH_LEN = 128
 PK_ENC_LEN = 128
 PK_PAD_LEN = 42
 TAP_C_HANDSHAKE_LEN = DH_LEN + KEY_LEN + PK_PAD_LEN

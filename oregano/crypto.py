@@ -9,8 +9,8 @@ DH_MODULUS = bytes_to_long(
 "49286651ECE65381FFFFFFFFFFFFFFFF".decode("hex"))
 DH_MODULUS_MINUS_TWO = DH_MODULUS - 2
 DH_GENERATOR = 2
+DH_LEN = 128
 DH_SEC_LEN = 40
-
 
 class DiffieHellman(object):
     '''
@@ -31,7 +31,7 @@ class DiffieHellman(object):
 
         public_int = pow(DH_GENERATOR, secret_int, DH_MODULUS)
 
-        return long_to_bytes(public_int)
+        return long_to_bytes(public_int, DH_LEN)
 
     def compute(self, public):
         secret_int = bytes_to_long(self.secret)
@@ -43,7 +43,7 @@ class DiffieHellman(object):
 
         result = pow(public_int, secret_int, DH_MODULUS)
 
-        return long_to_bytes(result)
+        return long_to_bytes(result, DH_LEN)
 
 class LowLevelSignature(object):
 
