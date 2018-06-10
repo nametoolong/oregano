@@ -9,7 +9,7 @@ from Crypto.Cipher import AES, PKCS1_OAEP
 from Crypto.Hash import SHA1
 from Crypto.Util import Counter
 
-from oregano.crypto import DiffieHellman, DH_LEN
+from oregano.crypto import *
 from oregano.proxy import ORError
 
 COMMAND_PADDING = "\x00"
@@ -44,10 +44,13 @@ REASON_DONE = "\x06"
 PAYLOAD_LEN = 509
 MAX_DATA_LEN = PAYLOAD_LEN - 11
 
-KEY_LEN = 16
 PK_ENC_LEN = 128
 PK_PAD_LEN = 42
 TAP_C_HANDSHAKE_LEN = DH_LEN + KEY_LEN + PK_PAD_LEN
+
+NODE_ID_LENGTH = 20
+G_LENGTH = 32
+H_LENGTH = 32
 
 FINISHED = 0
 INJECTED = 1
@@ -290,22 +293,12 @@ class ORConnImpl:
         payload = content + "\x00" * (PAYLOAD_LEN - len(content))
         return self.add_circid(circid, COMMAND_CREATED + payload)
 
+    def created2_cell(self, circid, content):
+        payload = content + "\x00" * (PAYLOAD_LEN - len(content))
+        return self.add_circid(circid, COMMAND_CREATED2 + payload)
+
     def relay_cell(self, circid, payload):
         return self.add_circid(circid, COMMAND_RELAY + payload)
-
-KEY_LEN = 16
-HASH_LEN = 20
-
-def kdf_tor(K0):
-    K = ''
-    i = 0
-
-    while len(K) < 2 * KEY_LEN + 3 * HASH_LEN:
-        K += SHA1.new(K0 + chr(i)).digest()
-        i += 1
-
-    return (K[:HASH_LEN], K[HASH_LEN:2*HASH_LEN], K[2*HASH_LEN:3*HASH_LEN],
-        K[3*HASH_LEN:3*HASH_LEN+KEY_LEN], K[3*HASH_LEN+KEY_LEN:3*HASH_LEN+2*KEY_LEN])
 
 def make_or_ciphers(key):
     Df = key[1]
@@ -377,6 +370,9 @@ class CircuitManager:
         return circid
 
     def create_fast(self, circid, payload):
+        if circid == 0:
+            return (None, 0)
+
         if len(self.circuits_client) >= self.MAX_CIRCUITS_PER_CLIENT:
             return (self.client_or_conn.destroy_cell(circid, ERROR_RESOURCELIMIT), 0)
 
@@ -388,6 +384,9 @@ class CircuitManager:
         ciphers = make_or_ciphers(key)
 
         with self.lock:
+            if circid in self.circuits_client:
+                return (None, 0)
+
             circid_server = self.create_circid_for_server()
 
             self.circuits_client[circid] = CircuitKey(Y, key[0], *ciphers)
@@ -399,6 +398,9 @@ class CircuitManager:
         return (None, circid_server)
 
     def create(self, circid, payload, onion_key):
+        if circid == 0:
+            return (None, None)
+
         if len(self.circuits_client) >= self.MAX_CIRCUITS_PER_CLIENT:
             return (self.client_or_conn.destroy_cell(circid, ERROR_RESOURCELIMIT), None)
 
@@ -428,9 +430,82 @@ class CircuitManager:
         X = Random.get_random_bytes(HASH_LEN)
 
         with self.lock:
+            if circid in self.circuits_client:
+                return (None, None)
+
             circid_server = self.create_circid_for_server()
 
             self.circuits_client[circid] = CircuitKey(our_secret, key[0], *ciphers)
+            self.circuits_server[circid_server] = CircuitKey(X, None, None, None, None, None)
+
+            self.map_client_to_server[circid] = circid_server
+            self.map_server_to_client[circid_server] = circid
+
+        return (None, self.server_or_conn.create_fast_cell(circid_server, X))
+
+    def create2(self, circid, payload, ntor_onion_key):
+        if circid == 0:
+            return (None, None)
+
+        if len(self.circuits_client) >= self.MAX_CIRCUITS_PER_CLIENT:
+            return (self.client_or_conn.destroy_cell(circid, ERROR_RESOURCELIMIT), None)
+
+        htype = struct.unpack("!H", payload[:2])[0]
+        hlen = struct.unpack("!H", payload[2:4])[0]
+
+        # HTYPE = 2 is ntor
+        if htype != 2 or len(payload) < hlen + 4:
+            return (self.client_or_conn.destroy_cell(circid, ERROR_PROTOCOL), None)
+
+        hdata = payload[4:4+hlen]
+
+        node_id = hdata[:NODE_ID_LENGTH]
+        keyid = hdata[NODE_ID_LENGTH:NODE_ID_LENGTH+H_LENGTH]
+
+        if ntor_onion_key.public != keyid:
+            return (self.client_or_conn.destroy_cell(circid, ERROR_PROTOCOL), None)
+
+        pubkey_X = hdata[NODE_ID_LENGTH+H_LENGTH:NODE_ID_LENGTH+H_LENGTH+G_LENGTH]
+
+        privkey = NTorKey()
+        pubkey_Y = privkey.get_public()
+        pubkey_B = ntor_onion_key.public
+
+        xy = privkey.compute(pubkey_X)
+        xb = NTorKey(ntor_onion_key.secret).compute(pubkey_X)
+
+        secret_input = (xy + xb + node_id + # Node ID? We are an MITM box.
+                    pubkey_B +
+                    pubkey_X +
+                    pubkey_Y +
+                    PROTOID)
+
+        verify = ntor_H_verify(secret_input)
+
+        auth_input = (verify +
+                  node_id +
+                  pubkey_B +
+                  pubkey_Y +
+                  pubkey_X +
+                  PROTOID +
+                  b"Server")
+
+        privkey.set_auth_value(ntor_H_mac(auth_input))
+
+        K = kdf_ntor(secret_input, 2*HASH_LEN+2*KEY_LEN)
+
+        ciphers = make_or_ciphers((None, K[:HASH_LEN], K[HASH_LEN:2*HASH_LEN],
+            K[2*HASH_LEN:2*HASH_LEN+KEY_LEN], K[2*HASH_LEN+KEY_LEN:2*HASH_LEN+2*KEY_LEN]))
+
+        X = Random.get_random_bytes(HASH_LEN)
+
+        with self.lock:
+            if circid in self.circuits_client:
+                return (None, None)
+
+            circid_server = self.create_circid_for_server()
+
+            self.circuits_client[circid] = CircuitKey(privkey, None, *ciphers)
             self.circuits_server[circid_server] = CircuitKey(X, None, None, None, None, None)
 
             self.map_client_to_server[circid] = circid_server
@@ -473,6 +548,12 @@ class CircuitManager:
                 client_Y = key_client.our_material.get_public()
                 client_KH = key_client.KH
                 return (None, self.client_or_conn.created_cell(circid_client, client_Y + client_KH))
+            elif isinstance(key_client.our_material, NTorKey):
+                client_Y = key_client.our_material.get_public()
+                client_auth = key_client.our_material.get_auth_value()
+                hs_data = client_Y + client_auth
+                hs_len = struct.pack("!H", len(hs_data))
+                return (None, self.client_or_conn.created2_cell(circid_client, hs_len + hs_data))
             elif isinstance(key_client.our_material, basestring):
                 client_Y = key_client.our_material
                 client_KH = key_client.KH

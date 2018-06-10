@@ -1,3 +1,4 @@
+import collections
 import signal
 import SocketServer
 import threading
@@ -15,7 +16,7 @@ from Crypto.Util.asn1 import DerSequence
 from mesona.proxy import MITMServer, MITMHandler, MITMSettings, send_range_safe
 
 import oregano
-from oregano.crypto import LowLevelSignature
+from oregano.crypto import LowLevelSignature, NTorKey
 from oregano.onion import *
 
 HASH_LEN = 20
@@ -33,6 +34,7 @@ onion-key
 {onion_key}
 signing-key
 {signing_key}
+ntor-onion-key {ntor_onion_key}
 bridge-distribution-request none
 reject *:*
 tunnelled-dir-server
@@ -47,6 +49,8 @@ Content-Encoding: identity
 Expires: {expires}
 
 '''.lstrip().replace("\n", "\r\n")
+
+NTorOnionKey = collections.namedtuple('NTorOnionKey', ("secret", "public"))
 
 class ORError(Exception):
     pass
@@ -65,6 +69,9 @@ class ORMITMServer(MITMServer):
 
         self.identity_pubkey = RSA.import_key(self.encoded_cert)
         self.identity_privkey = RSA.import_key(self.key)
+
+        ntor_onion_secret_key = self.config.ntor_onion_secret_key.decode("base64").strip()
+        self.ntor_onion_key = NTorOnionKey(ntor_onion_secret_key, NTorKey(ntor_onion_secret_key).get_public())
 
         self.fingerprint = self.make_digest_fingerprint()
         self.descriptor = self.create_bridge_descriptor()
@@ -94,7 +101,8 @@ class ORMITMServer(MITMServer):
             fingerprint=self.fingerprint,
             bandwidth=bandwidth,
             onion_key=encoded_key,
-            signing_key=encoded_key)
+            signing_key=encoded_key,
+            ntor_onion_key=self.ntor_onion_key.public.encode("base64").strip())
         # Does it make sense for an MITM box to rotate its keys?
 
         router_signature = LowLevelSignature(self.identity_privkey).sign(SHA1.new(desc).digest())
@@ -339,8 +347,15 @@ class ORMITMHandler(MITMHandler):
                     self.send_to_remote(response_for_server)
 
             elif command == COMMAND_CREATE2:
-                # TODO: implement ntor handshake
-                pass
+                payload = cell_content[1:]
+
+                response_for_client, response_for_server = self.circ_manager.create2(circid, payload, self.server.ntor_onion_key)
+
+                if response_for_client:
+                    self.send_to_session(response_for_client)
+
+                if response_for_server:
+                    self.send_to_remote(response_for_server)
 
 if __name__ == '__main__':
     from oregano.configuration import settings, default_settings

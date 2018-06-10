@@ -1,6 +1,6 @@
 # Oregano
 
-MITM proxy for Tor. We can bootstrap a specially configured Tor client to 100% using TAP, though ntor is not supported yet.
+MITM proxy for Tor. We can bootstrap a Tor client to 100% now.
 
 ## Usage
 
