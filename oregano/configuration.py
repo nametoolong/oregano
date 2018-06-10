@@ -41,6 +41,9 @@ settings = {
         # the 1024-bit RSA key corresponding to our certificate, must be in PEM format
         "key": "certs/key.key",
 
+        # our 1024-bit RSA onion key, must be in PEM format
+        "onion_secret_key": "certs/onion.key",
+
         # base64 encode of our ntor onion key, the private part
         "ntor_onion_secret_key": "MAnGt1ArmYV1/W8AwfVlyxIQXV+NIMRttytfD2+J1F4=",
 

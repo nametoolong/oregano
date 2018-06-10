@@ -55,12 +55,16 @@ NTorOnionKey = collections.namedtuple('NTorOnionKey', ("secret", "public"))
 class ORError(Exception):
     pass
 
+def encodePEMRawRSAPubKey(key):
+	return PEM.encode(DerSequence([key.n, key.e]).encode(), "RSA PUBLIC KEY")
+
 class ORMITMServer(MITMServer):
     def __init__(self, config, bind_and_activate=True):
         self.config = config
 
         self.encoded_cert = open(self.config.cert).read()
         self.key = open(self.config.key).read()
+        self.onion_secret_key = open(self.config.onion_secret_key).read()
 
         self.server_context = TLSContext(X509Credentials(
             X509Certificate(self.encoded_cert, format=X509_FMT_DER),
@@ -69,6 +73,8 @@ class ORMITMServer(MITMServer):
 
         self.identity_pubkey = RSA.import_key(self.encoded_cert)
         self.identity_privkey = RSA.import_key(self.key)
+
+        self.onion_privkey = RSA.import_key(self.onion_secret_key)
 
         ntor_onion_secret_key = self.config.ntor_onion_secret_key.decode("base64").strip()
         self.ntor_onion_key = NTorOnionKey(ntor_onion_secret_key, NTorKey(ntor_onion_secret_key).get_public())
@@ -90,7 +96,8 @@ class ORMITMServer(MITMServer):
         published = time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime())
         bandwidth = "{:d} {:d} {:d}".format(self.config.announced_bandwidth[0], self.config.announced_bandwidth[1], 0)
 
-        encoded_key = PEM.encode(DerSequence([self.identity_pubkey.n, self.identity_pubkey.e]).encode(), "RSA PUBLIC KEY")
+        encoded_key = encodePEMRawRSAPubKey(self.identity_pubkey)
+        encoded_onion_key = encodePEMRawRSAPubKey(self.onion_privkey)
 
         desc = DESCRIPTOR_TEMPLATE.format(
             nickname=nickname,
@@ -100,7 +107,7 @@ class ORMITMServer(MITMServer):
             published=published,
             fingerprint=self.fingerprint,
             bandwidth=bandwidth,
-            onion_key=encoded_key,
+            onion_key=encoded_onion_key,
             signing_key=encoded_key,
             ntor_onion_key=self.ntor_onion_key.public.encode("base64").strip())
         # Does it make sense for an MITM box to rotate its keys?
@@ -338,7 +345,7 @@ class ORMITMHandler(MITMHandler):
             elif command == COMMAND_CREATE:
                 payload = cell_content[1:]
 
-                response_for_client, response_for_server = self.circ_manager.create(circid, payload, self.server.identity_privkey)
+                response_for_client, response_for_server = self.circ_manager.create(circid, payload, self.server.onion_privkey)
                 
                 if response_for_client:
                     self.send_to_session(response_for_client)
