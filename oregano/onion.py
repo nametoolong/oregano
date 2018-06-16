@@ -93,7 +93,7 @@ def cell_is_var_length(command):
 
 class ORConnImpl:
 
-    our_versions = (3, 4)
+    our_versions = set((3, 4))
 
     def __init__(self, conn):
         self.conn = conn
@@ -163,12 +163,17 @@ class ORConnImpl:
     def process_versions_cell(self, versions_cell):
         versions = self.parse_versions_cell(versions_cell)
 
-        if 4 in versions:
+        common_versions = set(versions) & self.our_versions
+
+        if len(common_versions) == 0:
+             raise ORError("Unable to negotiate a common version")
+
+        negotiated_version = max(common_versions)
+
+        if negotiated_version >= 4:
             self.circid_len = 4
-        elif 3 in versions:
-            self.circid_len = 2
         else:
-            raise ORError("Unsupported protocol version")
+            self.circid_len = 2
 
     def parse_versions_cell(self, cell):
         circid, cell_content = self.decode_circid(cell)
@@ -241,7 +246,7 @@ class ORConnImpl:
         return packed_circid + content
 
     def versions_cell(self):
-        payload = ''.join([struct.pack("!H", version_num) for version_num in self.our_versions])
+        payload = ''.join([struct.pack("!H", version_num) for version_num in sorted(self.our_versions)])
         return "\x00" * 2 + COMMAND_VERSIONS + struct.pack("!H", len(payload)) + payload
 
     def certs_cell(self, certs):
