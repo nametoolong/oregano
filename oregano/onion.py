@@ -194,8 +194,8 @@ class ORConnImpl:
         if circid != 0 or cell_content[0] != COMMAND_CERTS:
             raise ORError("Malformed CERTS cell")
 
-        cert_num = struct.unpack("!B", cell[3])[0]
-        cell_content = cell[4:]
+        cert_num = struct.unpack("!B", cell_content[3])[0]
+        cell_content = cell_content[4:]
         certs = []
 
         for i in range(cert_num):
