@@ -165,7 +165,7 @@ class ORForwardingThread(threading.Thread):
                 response_for_server, response_for_client = self.request.circ_manager.relay_backward(circid, cell_content)
 
                 if response_for_server:
-                    self.request.send_to_server(response_for_server)
+                    self.request.send_to_remote(response_for_server)
 
                 if response_for_client:
                     self.request.send_to_session(response_for_client)
@@ -176,7 +176,7 @@ class ORForwardingThread(threading.Thread):
                 response_for_server, response_for_client = self.request.circ_manager.created_fast(circid, payload)
 
                 if response_for_server:
-                    self.request.send_to_server(response_for_server)
+                    self.request.send_to_remote(response_for_server)
 
                 if response_for_client:
                     self.request.send_to_session(response_for_client)
