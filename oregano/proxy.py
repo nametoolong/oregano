@@ -13,7 +13,7 @@ from Crypto.IO import PEM
 from Crypto.PublicKey import RSA
 from Crypto.Util.asn1 import DerSequence
 
-from mesona.proxy import MITMServer, MITMHandler, MITMSettings, send_range_safe
+from mesona.proxy import MITMServer, MITMHandler, MITMSettings, send_range_safe, is_ipv6_address
 
 import oregano
 from oregano.crypto import LowLevelSignature, NTorKey
@@ -61,6 +61,9 @@ def encodePEMRawRSAPubKey(key):
 class ORMITMServer(MITMServer):
     def __init__(self, config, bind_and_activate=True):
         self.config = config
+
+        if is_ipv6_address(self.config.listen_address):
+            self.address_family = socket.AF_INET6
 
         self.encoded_cert = open(self.config.cert).read()
         self.key = open(self.config.key).read()
