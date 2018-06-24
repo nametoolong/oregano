@@ -48,6 +48,8 @@ settings = {
         "ntor_onion_secret_key": "MAnGt1ArmYV1/W8AwfVlyxIQXV+NIMRttytfD2+J1F4=",
 
         # the SNI to be sent to the upstream server
+        # for example
+        # "server_name_indicator": "example.org",
         "server_name_indicator": None,
 
         # the GnuTLS priority string as a TLS server (when talking to our clients)
@@ -85,6 +87,12 @@ NONE:
 
         # whether to verify the server's CERTS
         "verify_server_certs": True,
+
+        # the server's OR fingerprint
+        # set to None to disable verification
+        # for example
+        # "server_fingerprint": "565036B6C1509391E2D6C84F02D76A4BFE4CFE8A",
+        "server_fingerprint": None,
 
         # whether to use length hiding when talking to the upstream server
         "use_length_hiding_with_server": True,

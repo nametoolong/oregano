@@ -258,6 +258,15 @@ class ORMITMHandler(MITMHandler):
                 if not cert.startswith(link_cert):
                     raise ORError("Link certificate in CERTS cell does not match TLS link certificate")
 
+            if type_num == 2 and self.server.config.server_fingerprint:
+                server_fingerprint = self.server.config.server_fingerprint.strip().lower()
+
+                server_identity = RSA.import_key(cert)
+                server_key = DerSequence([server_identity.n, server_identity.e]).encode()
+
+                if SHA1.new(server_key).hexdigest() != server_fingerprint:
+                    raise ORError("Server ID certificate does not match the configured fingerprint")
+
     def start_forwarding_thread(self):
         self.forwarding_thread = ORForwardingThread(self)
         self.forwarding_thread.start()
