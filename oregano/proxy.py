@@ -56,7 +56,7 @@ class ORError(Exception):
     pass
 
 def encodePEMRawRSAPubKey(key):
-	return PEM.encode(DerSequence([key.n, key.e]).encode(), "RSA PUBLIC KEY")
+    return PEM.encode(DerSequence([key.n, key.e]).encode(), "RSA PUBLIC KEY")
 
 class ORMITMServer(MITMServer):
     def __init__(self, config, bind_and_activate=True):
@@ -194,6 +194,9 @@ class ORForwardingThread(threading.Thread):
             elif command == COMMAND_CREATED2:
                 # TODO: implement ntor handshake
                 pass
+            else:
+                with self.request.server.logging_lock:
+                    print 'Received an unexpected cell: {}'.format(command.encode('hex'))
 
 class ORMITMHandler(MITMHandler):
     def send_to_session(self, data):
@@ -366,6 +369,14 @@ class ORMITMHandler(MITMHandler):
 
                 if response_for_server:
                     self.send_to_remote(response_for_server)
+
+            elif command == COMMAND_PADDING_NEGOTIATE:
+                if self.server_or_conn.version >= 5:
+                    self.send_to_remote(self.server_or_conn.add_circid(0, cell_content))
+
+            else:
+                with self.server.logging_lock:
+                    print 'Received an unexpected cell: {}'.format(command.encode('hex'))
 
 if __name__ == '__main__':
     from oregano.configuration import settings, default_settings

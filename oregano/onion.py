@@ -93,13 +93,14 @@ def cell_is_var_length(command):
 
 class ORConnImpl:
 
-    our_versions = set((3, 4))
+    our_versions = frozenset((3, 4, 5))
 
     def __init__(self, conn):
         self.conn = conn
         self.buf = ''
 
         self.circid_len = 0
+        self.version = 0
 
     def read_from_conn(self):
         data = self.conn.recv(4096)
@@ -168,9 +169,9 @@ class ORConnImpl:
         if len(common_versions) == 0:
              raise ORError("Unable to negotiate a common version")
 
-        negotiated_version = max(common_versions)
+        self.version = max(common_versions)
 
-        if negotiated_version >= 4:
+        if self.version >= 4:
             self.circid_len = 4
         else:
             self.circid_len = 2
