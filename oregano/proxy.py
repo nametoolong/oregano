@@ -1,12 +1,17 @@
 import collections
+import logging
 import signal
+import socket
 import SocketServer
+import sys
 import threading
 import time
+import traceback
 
 from gnutls.crypto import X509Certificate, X509PrivateKey
 from gnutls.connection import TLSContext, X509Credentials
 from gnutls.constants import X509_FMT_DER
+from gnutls.errors import GNUTLSError
 
 from Crypto.Hash import SHA1
 from Crypto.IO import PEM
@@ -121,8 +126,7 @@ class ORMITMServer(MITMServer):
         return desc + router_signature + "\n"
 
     def print_fingerprint(self):
-        with self.logging_lock:
-            print "Instance on {} has fingerprint {}".format(config.listen_address, self.fingerprint)
+        logging.info("Instance on {} has fingerprint {}".format(config.listen_address, self.fingerprint))
 
     def make_digest_fingerprint(self):
         pubkey = DerSequence([self.identity_pubkey.n, self.identity_pubkey.e]).encode()
@@ -134,6 +138,17 @@ class ORMITMServer(MITMServer):
 
     def create_dir_response(self):
         return DIR_IDENTITY_RESPONSE_TEMPLATE + self.descriptor
+
+    def print_exc(self):
+        exc = sys.exc_value
+        exc_type = type(exc)
+
+        if exc_type == ORError:
+            logging.warning("A protocol error occurred: " + str(exc))
+        elif exc_type == RuntimeError:
+            logging.warning("A runtime error occurred: " + str(exc))
+        elif not self.config.suppress_exceptions:
+            logging.error("An exception occurred: " + traceback.format_exc())
 
 class ORForwardingThread(threading.Thread):
     def __init__(self, request):
@@ -195,8 +210,7 @@ class ORForwardingThread(threading.Thread):
                 # TODO: implement ntor handshake
                 pass
             else:
-                with self.request.server.logging_lock:
-                    print 'Received an unexpected cell: {}'.format(command.encode('hex'))
+                logging.info('Received an unexpected cell: {}'.format(command.encode('hex')))
 
 class ORMITMHandler(MITMHandler):
     def send_to_session(self, data):
@@ -284,7 +298,10 @@ class ORMITMHandler(MITMHandler):
 
         self.or_handshake_with_client()
 
-        self.build_server_connection()
+        try:
+            self.build_server_connection()
+        except (GNUTLSError, socket.error) as e:
+            raise ORError("Could not connect to server: " + str(e))
 
         if self.server.config.use_length_hiding_with_server and not self.remote.can_use_length_hiding():
             raise RuntimeError("Can't use length hiding with server")
@@ -389,11 +406,14 @@ class ORMITMHandler(MITMHandler):
                     self.send_to_remote(self.server_or_conn.add_circid(0, cell_content))
 
             else:
-                with self.server.logging_lock:
-                    print 'Received an unexpected cell: {}'.format(command.encode('hex'))
+                logging.info('Received an unexpected cell: {}'.format(command.encode('hex')))
 
 if __name__ == '__main__':
     from oregano.configuration import settings, default_settings
+
+    logging.basicConfig(format="%(asctime)s thread-%(thread)d [%(levelname)s] %(message)s",
+                        datefmt="%b %d %H:%M:%S",
+                        level=logging.INFO)
 
     servers = []
     threads = []
@@ -409,8 +429,7 @@ if __name__ == '__main__':
 
         server = ORMITMServer(config)
 
-        with server.logging_lock:
-            print("Starting listener on {} which forwards to {}".format(config.listen_address, config.server_address))
+        logging.info("Starting listener on {} which forwards to {}".format(config.listen_address, config.server_address))
 
         thread = threading.Thread(target=server.serve_forever)
         thread.daemon = True
