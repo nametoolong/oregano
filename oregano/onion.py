@@ -93,14 +93,16 @@ def cell_is_var_length(command):
 
 class ORConnImpl:
 
-    our_versions = frozenset((3, 4, 5))
+    supported_versions = frozenset((3, 4, 5))
 
-    def __init__(self, conn):
+    def __init__(self, conn, our_versions):
         self.conn = conn
         self.buf = ''
 
         self.circid_len = 0
         self.version = 0
+
+        self.our_versions = self.supported_versions & our_versions
 
     def read_from_conn(self):
         data = self.conn.recv(4096)

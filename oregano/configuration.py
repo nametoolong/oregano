@@ -1,6 +1,3 @@
-from gnutls.crypto import X509Certificate, X509CRL, X509PrivateKey
-from gnutls.connection import X509Credentials
-
 # Default settings for what is undeclared.
 default_settings = {
     "address": "0.0.0.0",
@@ -46,6 +43,14 @@ settings = {
 
         # base64 encode of our ntor onion key, the private part
         "ntor_onion_secret_key": "MAnGt1ArmYV1/W8AwfVlyxIQXV+NIMRttytfD2+J1F4=",
+
+        # the link protocol versions we are offering to the upstream server
+        # see https://gitweb.torproject.org/torspec.git/tree/tor-spec.txt#n571 for available values
+        "versions_offered_to_server": (3, 4, 5),
+
+        # the link protocol versions we are offering to our clients
+        # see https://gitweb.torproject.org/torspec.git/tree/tor-spec.txt#n571 for available values
+        "versions_offered_to_client": (3, 4, 5),
 
         # the SNI to be sent to the upstream server
         # for example

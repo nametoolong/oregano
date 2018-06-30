@@ -212,7 +212,7 @@ class ORMITMHandler(MITMHandler):
             self.remote.sendall(data)
 
     def or_handshake_with_client(self):
-        self.client_or_conn = ORConnImpl(self.session)
+        self.client_or_conn = ORConnImpl(self.session, frozenset(self.server.config.versions_offered_to_client))
 
         self.client_or_conn.process_versions_cell(self.client_or_conn.get_one_cell())
 
@@ -227,7 +227,7 @@ class ORMITMHandler(MITMHandler):
         self.client_or_conn.process_netinfo_cell(self.client_or_conn.get_one_cell())
 
     def or_handshake_with_server(self):
-        self.server_or_conn = ORConnImpl(self.remote)
+        self.server_or_conn = ORConnImpl(self.remote, frozenset(self.server.config.versions_offered_to_server))
 
         self.send_to_remote(self.server_or_conn.versions_cell())
 
