@@ -264,8 +264,13 @@ class ORMITMHandler(MITMHandler):
                 server_identity = RSA.import_key(cert)
                 server_key = DerSequence([server_identity.n, server_identity.e]).encode()
 
-                if SHA1.new(server_key).hexdigest() != server_fingerprint:
-                    raise ORError("Server ID certificate does not match the configured fingerprint")
+                remote_fingerprint = SHA1.new(server_key).hexdigest()
+
+                if remote_fingerprint != server_fingerprint:
+                    raise ORError("Server ID certificate does not match the configured fingerprint: "
+                        "expected {} but got {}".format(
+                            server_fingerprint.upper(),
+                            remote_fingerprint.upper()))
 
     def start_forwarding_thread(self):
         self.forwarding_thread = ORForwardingThread(self)
