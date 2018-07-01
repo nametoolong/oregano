@@ -4,6 +4,10 @@ MITM proxy for Tor. We can bootstrap a Tor client to 100% now.
 
 Additionally, you can use GnuTLS's length hiding capability to evade fingerprinting against Tor protocol.
 
+## Installation
+
+Make sure Python 2.7 is installed. Download a Windows release or manually install dependencies. That's all.
+
 ## Usage
 
 Edit `configuration.py` under directory `oregano` for configuration and run module `oregano.proxy`.
@@ -24,3 +28,7 @@ Bridge 127.0.0.1:40056
 * [python-gnutls](https://github.com/nametoolong/python-gnutls)
 * [PyCryptodome](https://www.pycryptodome.org/)
 * [eccsnacks](https://github.com/nnathan/eccsnacks)
+
+## Security
+
+This compromises anonymity.
