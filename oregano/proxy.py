@@ -259,32 +259,49 @@ class ORMITMHandler(MITMHandler):
         self.send_to_remote(self.server_or_conn.netinfo_cell(self.server.config.address, self.server.config.server_address[0]))
 
     def verify_server_certs(self, certs_cell):
-        link_cert = self.remote.peer_certificate.export(X509_FMT_DER)
+        tls_link_cert = self.remote.peer_certificate.export(X509_FMT_DER)
 
-        certs = self.server_or_conn.parse_certs_cell(certs_cell)
+        link_cert = None
+        id_cert = None
 
-        for type_num, cert in certs:
-            # we can't run the full verification process
-            # due to issues in python-gnutls
-            # so do a simple and easy-to-spoof check
-            # TODO: actual verification
+        for type_num, cert in self.server_or_conn.parse_certs_cell(certs_cell):
             if type_num == 1:
-                if not cert.startswith(link_cert):
-                    raise ORError("Link certificate in CERTS cell does not match TLS link certificate")
+                link_cert = cert
 
-            if type_num == 2 and self.server.config.server_fingerprint:
-                server_fingerprint = self.server.config.server_fingerprint.strip().lower()
+            if type_num == 2:
+                id_cert = cert
 
-                server_identity = RSA.import_key(cert)
-                server_key = DerSequence([server_identity.n, server_identity.e]).encode()
+        if not link_cert:
+            raise ORError("Missing Link certificate in server CERTS cell")
 
-                remote_fingerprint = SHA1.new(server_key).hexdigest()
+        if not id_cert:
+            raise ORError("Missing ID certificate in server CERTS cell")
 
-                if remote_fingerprint != server_fingerprint:
-                    raise ORError("Server ID certificate does not match the configured fingerprint: "
-                        "expected {} but got {}".format(
-                            server_fingerprint.upper(),
-                            remote_fingerprint.upper()))
+        if link_cert != tls_link_cert:
+            raise ORError("Link certificate in CERTS cell does not match TLS link certificate")
+
+        try:
+            self.remote.peer_certificate.check_issuer(X509Certificate(id_cert, format=X509_FMT_DER))
+        except GNUTLSError:
+            raise ORError("Link certificate is incorrectly signed")
+
+        try:
+            server_identity = RSA.import_key(id_cert)
+        except (ValueError, IndexError, TypeError):
+            raise ORError("Error in RSA key parsing")
+
+        if self.server.config.server_fingerprint:
+            server_fingerprint = self.server.config.server_fingerprint.strip().lower()
+
+            server_key = DerSequence([server_identity.n, server_identity.e]).encode()
+
+            remote_fingerprint = SHA1.new(server_key).hexdigest()
+
+            if remote_fingerprint != server_fingerprint:
+                raise ORError("Server ID certificate does not match the configured fingerprint: "
+                    "expected {} but got {}".format(
+                        server_fingerprint.upper(),
+                        remote_fingerprint.upper()))
 
     def start_forwarding_thread(self):
         self.forwarding_thread = ORForwardingThread(self)
