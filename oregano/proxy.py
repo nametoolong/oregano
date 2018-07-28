@@ -70,9 +70,14 @@ class ORMITMServer(MITMServer):
         if is_ipv6_address(self.config.listen_address):
             self.address_family = socket.AF_INET6
 
-        self.encoded_cert = open(self.config.cert).read()
-        self.key = open(self.config.key).read()
-        self.onion_secret_key = open(self.config.onion_secret_key).read()
+        with open(self.config.cert, 'rb') as f:
+            self.encoded_cert = f.read()
+
+        with open(self.config.key, 'r') as f:
+            self.key = f.read()
+
+        with open(self.config.onion_secret_key, 'r') as f:
+            self.onion_secret_key = f.read()
 
         self.server_context = TLSContext(X509Credentials(
             X509Certificate(self.encoded_cert, format=X509_FMT_DER),
