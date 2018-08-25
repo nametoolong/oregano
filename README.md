@@ -1,8 +1,6 @@
 # Oregano
 
-MITM proxy for Tor. We can bootstrap a Tor client to 100% now.
-
-Additionally, you can use GnuTLS's length hiding capability to evade fingerprinting against Tor protocol.
+MITM proxy for Tor, with GnuTLS's length hiding capability to evade some kinds of fingerprinting against Tor protocol.
 
 ## Installation
 
@@ -15,7 +13,7 @@ Edit `configuration.py` under directory `oregano` for configuration and run modu
 python -m oregano.proxy
 ```
 
-Then set `UseBridges` or use a Tor controller to instruct a Tor client to connect to the listening interface.
+Then set `UseBridges` or use a Tor controller to instruct a Tor client to connect to the listening interface. Or play around with ARP spoofing and redirect someone's bridge connection. Or whatever.
 ```
 UseBridges 1
 Bridge 127.0.0.1:40056
