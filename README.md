@@ -26,6 +26,7 @@ Bridge 127.0.0.1:40056
 * [python-gnutls](https://github.com/nametoolong/python-gnutls)
 * [PyCryptodome](https://www.pycryptodome.org/)
 * [eccsnacks](https://github.com/nnathan/eccsnacks)
+* [PySocks](https://github.com/Anorov/PySocks) (only needed when proxy is set)
 
 ## Security
 
