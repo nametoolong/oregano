@@ -308,6 +308,18 @@ class ORConnImpl:
     def relay_cell(self, circid, payload):
         return self.add_circid(circid, COMMAND_RELAY + payload)
 
+    def relay_early_cell(self, circid, payload):
+        return self.add_circid(circid, COMMAND_RELAY_EARLY + payload)
+
+    def padding_cell(self, payload):
+        return self.add_circid(0, COMMAND_PADDING + payload)
+
+    def padding_negotiate_cell(self, payload):
+        return self.add_circid(0, COMMAND_PADDING_NEGOTIATE + payload)
+
+    def vpadding_cell(self, payload):
+        return self.add_circid(0, COMMAND_VPADDING + struct.pack("!H", len(payload)) + payload)
+
 def make_or_ciphers(key):
     Df = key[1]
     Db = key[2]
