@@ -12,6 +12,48 @@ default_settings = {
     "suppress_exceptions": False
 }
 
+import oregano.handler
+
+class EvilHandler(oregano.handler.DefaultHandler):
+
+    '''
+    You can rewrite these methods:
+
+    forward_cell_received(self, cell) # note that this method calls the methods below
+    on_forward_padding_cell(self, circid, cell_content)
+    on_forward_create_cell(self, circid, cell_content)
+    on_forward_relay_cell(self, circid, cell_content)
+    on_forward_destory_cell(self, circid, cell_content)
+    on_forward_create_fast_cell(self, circid, cell_content)
+    on_forward_relay_early_cell(self, circid, cell_content)
+    on_forward_create2_cell(self, circid, cell_content)
+    on_forward_padding_negotiate_cell(self, circid, cell_content)
+    on_forward_vpadding_cell(self, circid, cell_content)
+    on_forward_unknown_cell(self, circid, cell_content)
+
+    backward_cell_received(self, cell) # note that this method calls the methods below
+    on_backward_padding_cell(self, circid, cell_content)
+    on_backward_created_cell(self, circid, cell_content)
+    on_backward_relay_cell(self, circid, cell_content)
+    on_backward_destory_cell(self, circid, cell_content)
+    on_backward_created_fast_cell(self, circid, cell_content)
+    on_backward_relay_early_cell(self, circid, cell_content)
+    on_backward_created2_cell(self, circid, cell_content)
+    on_backward_vpadding_cell(self, circid, cell_content)
+    on_backward_unknown_cell(self, circid, cell_content)
+
+
+    Use self.send_to_remote(data) to send to the server and self.send_to_session(data) to send to the client.
+    Use methods of self.server_or_conn or self.client_or_conn respectively (see ORConnImpl in onion.py) to make cells.
+    '''
+
+    def on_forward_create2_cell(self, circid, cell_content):
+        super(EvilHandler, self).on_forward_create2_cell(circid, cell_content)
+
+        # example:
+        # send an extra VPADDING cell after each CREATE2 cell to mark it as our connection
+        self.send_to_remote(self.server_or_conn.vpadding_cell('EVIL    EVIL        LIVE    LIVE'))
+
 # The main configuration.
 # Each key-value pair declares a proxy instance.
 settings = {
@@ -112,6 +154,10 @@ NONE:
 
         # the range of padding when talking to our clients, if use_length_hiding_with_client is True
         "padding_range_with_client": (0, 0),
+
+        # your handler to do evil things
+        # comment out this line to disable
+        "handler": EvilHandler,
 
         # whether to suppress exceptions during processing of request
         # note that those exceptions are really annoying
