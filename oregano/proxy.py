@@ -48,10 +48,8 @@ router-signature
 DIR_IDENTITY_RESPONSE_TEMPLATE = '''
 HTTP/1.0 200 OK
 
-Date: {date}
 Content-Type: application/octet-stream
 Content-Encoding: identity
-Expires: {expires}
 
 '''.lstrip().replace("\n", "\r\n")
 
@@ -78,6 +76,8 @@ class ORMITMServer(MITMServer):
 
         with open(self.config.onion_secret_key, 'r') as f:
             self.onion_secret_key = f.read()
+
+        self.set_handler()
 
         self.server_context = TLSContext(X509Credentials(
             X509Certificate(self.encoded_cert, format=X509_FMT_DER),
@@ -144,6 +144,16 @@ class ORMITMServer(MITMServer):
     def create_dir_response(self):
         return DIR_IDENTITY_RESPONSE_TEMPLATE + self.descriptor
 
+    def set_handler(self):
+        if hasattr(self.config, "handler") and self.config.handler is not None:
+            self.handler = self.config.handler
+        else:
+            import oregano.handler
+            self.handler = oregano.handler.DefaultHandler
+
+    def make_handler(self, link):
+        return self.handler(link)
+
     def print_exc(self):
         exc = sys.exc_value
         exc_type = type(exc)
@@ -177,45 +187,7 @@ class ORForwardingThread(threading.Thread):
     def process_or_conn(self):
         while True:
             cell = self.request.server_or_conn.get_one_cell()
-            circid, cell_content = self.request.server_or_conn.decode_circid(cell)
-
-            command = cell_content[0]
-
-            if command == COMMAND_RELAY or command == COMMAND_RELAY_EARLY:
-                response_for_server, response_for_client = self.request.circ_manager.relay_backward(circid, cell_content)
-
-                if response_for_server:
-                    self.request.send_to_remote(response_for_server)
-
-                if response_for_client:
-                    self.request.send_to_session(response_for_client)
-
-            elif command == COMMAND_CREATED_FAST:
-                payload = cell_content[1:]
-
-                response_for_server, response_for_client = self.request.circ_manager.created_fast(circid, payload)
-
-                if response_for_server:
-                    self.request.send_to_remote(response_for_server)
-
-                if response_for_client:
-                    self.request.send_to_session(response_for_client)
-
-            elif command == COMMAND_DESTROY:
-                circid_client = self.request.circ_manager.destroy_from_server(circid)
-
-                if circid_client:
-                    self.request.send_to_session(self.request.client_or_conn.add_circid(circid_client, cell_content))
-            elif command == COMMAND_PADDING or command == COMMAND_VPADDING:
-                self.request.send_to_session(self.request.client_or_conn.add_circid(0, cell_content))
-            elif command == COMMAND_CREATED:
-                # TODO: implement TAP handshake
-                pass
-            elif command == COMMAND_CREATED2:
-                # TODO: implement ntor handshake
-                pass
-            else:
-                logging.info('Received an unexpected cell: {}'.format(command.encode('hex')))
+            self.request.handler.backward_cell_received(cell)
 
 class ORMITMHandler(MITMHandler):
     def send_to_session(self, data):
@@ -332,6 +304,8 @@ class ORMITMHandler(MITMHandler):
 
         self.circ_manager = CircuitManager(self.server_or_conn, self.client_or_conn)
 
+        self.handler = self.server.make_handler(self)
+
         self.start_forwarding_thread()
 
     def handle(self):
@@ -344,91 +318,7 @@ class ORMITMHandler(MITMHandler):
     def process_or_conn(self):
         while True:
             cell = self.client_or_conn.get_one_cell()
-            circid, cell_content = self.client_or_conn.decode_circid(cell)
-
-            command = cell_content[0]
-
-            if command == COMMAND_RELAY or command == COMMAND_RELAY_EARLY:
-                result = self.circ_manager.relay_forward(circid, cell_content)
-
-                if result[0] == FINISHED:
-                    response_for_client, response_for_server, = result[1:]
-
-                    if response_for_client:
-                        self.send_to_session(response_for_client)
-
-                    if response_for_server:
-                        self.send_to_remote(response_for_server)
-
-                elif result[0] == INJECTED:
-                    with self.circ_manager.lock:
-                        streamid, circid, circid_server, = result[1:]
-
-                        timestamp = time.time()
-                        date = time.gmtime(timestamp)
-                        expire_time = time.gmtime(timestamp + 60*60*24*365)
-
-                        dir_response = self.server.dir_identity_response.format(
-                                date=time.strftime("%a, %d %b %Y %H:%M:%S GMT", date),
-                                expires=time.strftime("%a, %d %b %Y %H:%M:%S GMT", expire_time))
-
-                        response_for_client, response_for_server = self.circ_manager.create_descriptor_response(
-                            dir_response, circid, circid_server, streamid)
-
-                        for response in response_for_client:
-                            self.send_to_session(response)
-
-                        for response in response_for_server:
-                            self.send_to_remote(response)
-
-            elif command == COMMAND_CREATE_FAST:
-                payload = cell_content[1:]
-
-                response, circid_server = self.circ_manager.create_fast(circid, payload)
-
-                if response:
-                    self.send_to_session(response)
-
-                if circid_server:
-                    self.send_to_remote(self.server_or_conn.add_circid(circid_server, cell_content))
-
-            elif command == COMMAND_DESTROY:
-                circid_server = self.circ_manager.destroy(circid)
-
-                if circid_server:
-                    self.send_to_remote(self.server_or_conn.add_circid(circid_server, cell_content))
-
-            elif command == COMMAND_PADDING or command == COMMAND_VPADDING:
-                self.send_to_remote(self.server_or_conn.add_circid(0, cell_content))
-
-            elif command == COMMAND_CREATE:
-                payload = cell_content[1:]
-
-                response_for_client, response_for_server = self.circ_manager.create(circid, payload, self.server.onion_privkey)
-                
-                if response_for_client:
-                    self.send_to_session(response_for_client)
-
-                if response_for_server:
-                    self.send_to_remote(response_for_server)
-
-            elif command == COMMAND_CREATE2:
-                payload = cell_content[1:]
-
-                response_for_client, response_for_server = self.circ_manager.create2(circid, payload, self.server.ntor_onion_key)
-
-                if response_for_client:
-                    self.send_to_session(response_for_client)
-
-                if response_for_server:
-                    self.send_to_remote(response_for_server)
-
-            elif command == COMMAND_PADDING_NEGOTIATE:
-                if self.server_or_conn.version >= 5:
-                    self.send_to_remote(self.server_or_conn.add_circid(0, cell_content))
-
-            else:
-                logging.info('Received an unexpected cell: {}'.format(command.encode('hex')))
+            self.handler.forward_cell_received(cell)
 
 if __name__ == '__main__':
     from oregano.configuration import settings, default_settings
