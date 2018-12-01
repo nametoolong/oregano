@@ -3,6 +3,8 @@ from Crypto.Hash import HMAC, SHA1, SHA256
 from Crypto.Protocol.KDF import HKDF
 from Crypto.Util.number import ceil_div, bytes_to_long, long_to_bytes, size
 
+from eccsnacks.curve25519 import scalarmult, scalarmult_base
+
 DH_MODULUS = bytes_to_long(
 "FFFFFFFFFFFFFFFFC90FDAA22168C234C4C6628B80DC1CD129024E08"
 "8A67CC74020BBEA63B139B22514A08798E3404DDEF9519B3CD3A431B"
@@ -88,13 +90,11 @@ def kdf_tor(K0):
         i += 1
 
     return (K[:HASH_LEN], K[HASH_LEN:2*HASH_LEN], K[2*HASH_LEN:3*HASH_LEN],
-        K[3*HASH_LEN:3*HASH_LEN+KEY_LEN], K[3*HASH_LEN+KEY_LEN:3*HASH_LEN+2*KEY_LEN])
-
-from eccsnacks.curve25519 import scalarmult, scalarmult_base
+            K[3*HASH_LEN:3*HASH_LEN+KEY_LEN], K[3*HASH_LEN+KEY_LEN:3*HASH_LEN+2*KEY_LEN])
 
 KEYID_LENGTH = 32
 
-PROTOID = b"ntor-curve25519-sha256-1"
+PROTOID  = b"ntor-curve25519-sha256-1"
 M_EXPAND = PROTOID + b":key_expand"
 T_MAC    = PROTOID + b":mac"
 T_KEY    = PROTOID + b":key_extract"

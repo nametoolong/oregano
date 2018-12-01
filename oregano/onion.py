@@ -168,8 +168,8 @@ class ORConnImpl:
 
         common_versions = set(versions) & self.our_versions
 
-        if len(common_versions) == 0:
-             raise ORError("Unable to negotiate a common version")
+        if not common_versions:
+            raise ORError("Unable to negotiate a common version")
 
         self.version = max(common_versions)
 
@@ -206,7 +206,7 @@ class ORConnImpl:
         cell_content = cell_content[4:]
         certs = []
 
-        for i in range(cert_num):
+        for _ in range(cert_num):
             if len(cell_content) < 3:
                 raise ORError("Malformed CERTS cell")
 
@@ -552,7 +552,7 @@ class CircuitManager:
         ciphers = make_or_ciphers(key)
 
         if key[0] != KH:
-            return (self.server_or_conn.destroy_cell(circid, ERROR_PROTOCOL), 
+            return (self.server_or_conn.destroy_cell(circid, ERROR_PROTOCOL),
                 self.client_or_conn.destroy_cell(circid_client, ERROR_DESTROYED))
 
         with self.lock:
@@ -772,7 +772,7 @@ class CircuitManager:
                         build_relay_cell(streamid, cell_data),
                         key_client,
                         direction='b'))
-                for cell_data in data])
+                 for cell_data in data])
 
             cells_for_client.append(
                 self.client_or_conn.relay_cell(circid,
