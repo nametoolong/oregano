@@ -19,6 +19,11 @@ class EvilHandler(oregano.handler.DefaultHandler):
     '''
     You can rewrite these methods:
 
+    __init__(self, link)
+    # a new instance is created for every connection
+    # if you override __init__
+    # always remember to invoke oregano.handler.DefaultHandler.__init__(self, link)
+
     forward_cell_received(self, cell) # note that this method calls the methods below
     on_forward_padding_cell(self, circid, cell_content)
     on_forward_create_cell(self, circid, cell_content)
@@ -53,6 +58,27 @@ class EvilHandler(oregano.handler.DefaultHandler):
         # example:
         # send an extra VPADDING cell after each CREATE2 cell to mark it as our connection
         self.send_to_remote(self.server_or_conn.vpadding_cell('EVIL    EVIL        LIVE    LIVE'))
+
+import random
+
+class PIPIResistanceHandler(oregano.handler.DefaultHandler):
+
+    '''
+    This handler tries to fool Port Independent Protocol Identification,
+    which is used by some ISPs to detect Tor traffic
+    '''
+
+    def on_forward_create_fast_cell(self, circid, cell_content):
+        super(PIPIResistanceHandler, self).on_forward_create_fast_cell(circid, cell_content)
+        self.send_to_remote(self.server_or_conn.vpadding_cell('\x00' * random.randint(1200, 2000)))
+
+    def on_forward_relay_early_cell(self, circid, cell_content):
+        super(PIPIResistanceHandler, self).on_forward_relay_early_cell(circid, cell_content)
+        self.send_to_remote(self.server_or_conn.vpadding_cell('\x00' * random.randint(1200, 2000)))
+
+    def on_forward_create2_cell(self, circid, cell_content):
+        super(PIPIResistanceHandler, self).on_forward_create2_cell(circid, cell_content)
+        self.send_to_remote(self.server_or_conn.vpadding_cell('\x00' * random.randint(1200, 2000)))
 
 # The main configuration.
 # Each key-value pair declares a proxy instance.
