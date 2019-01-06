@@ -30,4 +30,4 @@ Bridge 127.0.0.1:40056
 
 ## Security
 
-This compromises anonymity.
+This normally compromises anonymity by creating a bunch of side channels. But, given its TLS link manipulation nature, sometimes this might also help you.
