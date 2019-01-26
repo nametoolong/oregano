@@ -243,9 +243,15 @@ class ORMITMHandler(MITMHandler):
 
         for type_num, cert in self.server_or_conn.parse_certs_cell(certs_cell):
             if type_num == 1:
+                if link_cert is not None:
+                    raise ORError("CERTS cell has more than one Link certificate")
+
                 link_cert = cert
 
             if type_num == 2:
+                if id_cert is not None:
+                    raise ORError("CERTS cell has more than one ID certificate")
+
                 id_cert = cert
 
         if not link_cert:
