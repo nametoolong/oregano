@@ -10,7 +10,6 @@ from Crypto.Hash import SHA1
 from Crypto.Util import Counter
 
 from oregano.crypto import *
-from oregano.proxy import ORError
 
 COMMAND_PADDING = "\x00"
 COMMAND_CREATE = "\x01"
@@ -56,6 +55,9 @@ FINISHED = 0
 INJECTED = 1
 
 GET_AUTHORITY_Z = "GET /tor/server/authority.z "
+
+class ORError(Exception):
+    pass
 
 class CircuitKey(object):
     __slots__ = ("our_material", "KH", "Dffunc", "Dbfunc", "Kffunc", "Kbfunc", "dir_streams")

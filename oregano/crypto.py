@@ -2,7 +2,9 @@ import binascii
 
 from Crypto import Random
 from Crypto.Hash import HMAC, SHA1, SHA256
+from Crypto.IO import PEM
 from Crypto.Protocol.KDF import HKDF
+from Crypto.Util.asn1 import DerSequence
 from Crypto.Util.number import ceil_div, bytes_to_long, long_to_bytes, size
 
 from eccsnacks.curve25519 import scalarmult, scalarmult_base
@@ -79,6 +81,15 @@ class LowLevelSignature(object):
         # Step 3c (I2OSP)
         c = long_to_bytes(m_int, k)
         return c
+
+def encode_raw_rsa_pubkey(key):
+    return DerSequence([key.n, key.e]).encode()
+
+def encode_raw_rsa_pubkey_pem(key):
+    return PEM.encode(encode_raw_rsa_pubkey(key), "RSA PUBLIC KEY")
+
+def sign_router_descriptor(key, descriptor):
+    return PEM.encode(LowLevelSignature(key).sign(SHA1.new(descriptor).digest()), "SIGNATURE")
 
 KEY_LEN = 16
 HASH_LEN = 20

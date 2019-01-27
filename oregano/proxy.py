@@ -15,14 +15,13 @@ from gnutls.constants import X509_FMT_DER
 from gnutls.errors import GNUTLSError
 
 from Crypto.Hash import SHA1
-from Crypto.IO import PEM
 from Crypto.PublicKey import RSA
-from Crypto.Util.asn1 import DerSequence
 
 from mesona.proxy import MITMServer, MITMHandler, MITMSettings, send_range_safe, is_ipv6_address
 
 import oregano
-from oregano.crypto import LowLevelSignature, NTorKey
+from oregano.crypto import (encode_raw_rsa_pubkey, encode_raw_rsa_pubkey_pem,
+                            sign_router_descriptor, NTorKey)
 from oregano.onion import *
 
 HASH_LEN = 20
@@ -56,12 +55,6 @@ Content-Encoding: identity
 
 NTorOnionKey = collections.namedtuple('NTorOnionKey', ("secret", "public"))
 
-class ORError(Exception):
-    pass
-
-def encodePEMRawRSAPubKey(key):
-    return PEM.encode(DerSequence([key.n, key.e]).encode(), "RSA PUBLIC KEY")
-
 class ORMITMServer(MITMServer):
     def __init__(self, config, bind_and_activate=True):
         self.config = config
@@ -91,7 +84,8 @@ class ORMITMServer(MITMServer):
         self.onion_privkey = RSA.import_key(self.onion_secret_key)
 
         ntor_onion_secret_key = base64.b64decode(self.config.ntor_onion_secret_key.strip())
-        self.ntor_onion_key = NTorOnionKey(ntor_onion_secret_key, NTorKey(ntor_onion_secret_key).get_public())
+        self.ntor_onion_key = NTorOnionKey(ntor_onion_secret_key,
+                                           NTorKey(ntor_onion_secret_key).get_public())
 
         self.fingerprint = self.make_digest_fingerprint()
         self.descriptor = self.create_bridge_descriptor()
@@ -99,7 +93,8 @@ class ORMITMServer(MITMServer):
 
         self.print_fingerprint()
 
-        SocketServer.ThreadingTCPServer.__init__(self, config.listen_address, ORMITMHandler, bind_and_activate)
+        SocketServer.ThreadingTCPServer.__init__(self, config.listen_address,
+                                                 ORMITMHandler, bind_and_activate)
 
     def create_bridge_descriptor(self):
         nickname = self.config.nickname
@@ -108,10 +103,11 @@ class ORMITMServer(MITMServer):
             raise ORError("Bad nickname {}".format(nickname))
 
         published = time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime())
-        bandwidth = "{:d} {:d} {:d}".format(self.config.announced_bandwidth[0], self.config.announced_bandwidth[1], 0)
+        bandwidth = "{:d} {:d} {:d}".format(self.config.announced_bandwidth[0],
+                                            self.config.announced_bandwidth[1], 0)
 
-        encoded_key = encodePEMRawRSAPubKey(self.identity_pubkey)
-        encoded_onion_key = encodePEMRawRSAPubKey(self.onion_privkey)
+        encoded_key = encode_raw_rsa_pubkey_pem(self.identity_pubkey)
+        encoded_onion_key = encode_raw_rsa_pubkey_pem(self.onion_privkey)
 
         desc = DESCRIPTOR_TEMPLATE.format(
             nickname=nickname,
@@ -126,16 +122,16 @@ class ORMITMServer(MITMServer):
             ntor_onion_key=base64.b64encode(self.ntor_onion_key.public))
         # Does it make sense for an MITM box to rotate its keys?
 
-        router_signature = LowLevelSignature(self.identity_privkey).sign(SHA1.new(desc).digest())
-        router_signature = PEM.encode(router_signature, "SIGNATURE")
+        router_signature = sign_router_descriptor(self.identity_privkey, desc)
 
         return desc + router_signature + "\n"
 
     def print_fingerprint(self):
-        logging.info("Instance on {} has fingerprint {}".format(config.listen_address, self.fingerprint))
+        logging.info("Instance on {} has fingerprint {}".format(config.listen_address,
+                                                                self.fingerprint))
 
     def make_digest_fingerprint(self):
-        pubkey = DerSequence([self.identity_pubkey.n, self.identity_pubkey.e]).encode()
+        pubkey = encode_raw_rsa_pubkey(self.identity_pubkey)
 
         digest = SHA1.new(pubkey).hexdigest().upper()
         fingerprint = [digest[i*4:i*4+4] for i in range(HASH_LEN / 2)]
@@ -204,7 +200,8 @@ class ORMITMHandler(MITMHandler):
             self.remote.sendall(data)
 
     def or_handshake_with_client(self):
-        self.client_or_conn = ORConnImpl(self.session, frozenset(self.server.config.versions_offered_to_client))
+        self.client_or_conn = ORConnImpl(self.session,
+                                         frozenset(self.server.config.versions_offered_to_client))
 
         self.client_or_conn.process_versions_cell(self.client_or_conn.get_one_cell())
 
@@ -219,7 +216,8 @@ class ORMITMHandler(MITMHandler):
         self.client_or_conn.process_netinfo_cell(self.client_or_conn.get_one_cell())
 
     def or_handshake_with_server(self):
-        self.server_or_conn = ORConnImpl(self.remote, frozenset(self.server.config.versions_offered_to_server))
+        self.server_or_conn = ORConnImpl(self.remote,
+                                         frozenset(self.server.config.versions_offered_to_server))
 
         self.send_to_remote(self.server_or_conn.versions_cell())
 
@@ -277,15 +275,14 @@ class ORMITMHandler(MITMHandler):
         if self.server.config.server_fingerprint:
             server_fingerprint = self.server.config.server_fingerprint.strip().lower()
 
-            server_key = DerSequence([server_identity.n, server_identity.e]).encode()
+            server_key = encode_raw_rsa_pubkey(server_identity)
 
             remote_fingerprint = SHA1.new(server_key).hexdigest()
 
             if remote_fingerprint != server_fingerprint:
                 raise ORError("Server ID certificate does not match the configured fingerprint: "
-                    "expected {} but got {}".format(
-                        server_fingerprint.upper(),
-                        remote_fingerprint.upper()))
+                              "expected {} but got {}".format(server_fingerprint.upper(),
+                                                              remote_fingerprint.upper()))
 
     def start_forwarding_thread(self):
         self.forwarding_thread = ORForwardingThread(self)
@@ -348,7 +345,8 @@ if __name__ == '__main__':
 
         server = ORMITMServer(config)
 
-        logging.info("Starting listener on {} which forwards to {}".format(config.listen_address, config.server_address))
+        logging.info("Starting listener on {} which forwards to {}".format(config.listen_address,
+                                                                           config.server_address))
 
         thread = threading.Thread(target=server.serve_forever)
         thread.daemon = True
