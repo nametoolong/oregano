@@ -1,3 +1,4 @@
+import base64
 import collections
 import logging
 import signal
@@ -89,7 +90,7 @@ class ORMITMServer(MITMServer):
 
         self.onion_privkey = RSA.import_key(self.onion_secret_key)
 
-        ntor_onion_secret_key = self.config.ntor_onion_secret_key.decode("base64").strip()
+        ntor_onion_secret_key = base64.b64decode(self.config.ntor_onion_secret_key.strip())
         self.ntor_onion_key = NTorOnionKey(ntor_onion_secret_key, NTorKey(ntor_onion_secret_key).get_public())
 
         self.fingerprint = self.make_digest_fingerprint()
@@ -122,7 +123,7 @@ class ORMITMServer(MITMServer):
             bandwidth=bandwidth,
             onion_key=encoded_onion_key,
             signing_key=encoded_key,
-            ntor_onion_key=self.ntor_onion_key.public.encode("base64").strip())
+            ntor_onion_key=base64.b64encode(self.ntor_onion_key.public))
         # Does it make sense for an MITM box to rotate its keys?
 
         router_signature = LowLevelSignature(self.identity_privkey).sign(SHA1.new(desc).digest())

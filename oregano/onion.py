@@ -249,7 +249,9 @@ class ORConnImpl:
         return packed_circid + content
 
     def versions_cell(self):
-        payload = ''.join([struct.pack("!H", version_num) for version_num in sorted(self.our_versions)])
+        payload = ''.join([struct.pack("!H", version_num)
+                           for version_num in sorted(self.our_versions)])
+
         return "\x00" * 2 + COMMAND_VERSIONS + struct.pack("!H", len(payload)) + payload
 
     def certs_cell(self, certs):
@@ -352,7 +354,7 @@ def encrypt_onion_skin(content_no_digest, key, direction='f'):
 
 def build_relay_cell(streamid, data, command=RELAY_DATA):
     content_unpadded = ''.join((command, "\x00\x00", struct.pack("!H", streamid),
-        "\x00\x00\x00\x00", struct.pack("!H", len(data)), data))
+                                "\x00\x00\x00\x00", struct.pack("!H", len(data)), data))
     content_no_digest = content_unpadded + "\x00" * (PAYLOAD_LEN - len(content_unpadded))
 
     return content_no_digest
@@ -435,7 +437,7 @@ class CircuitManager:
             return (self.client_or_conn.destroy_cell(circid, ERROR_PROTOCOL), None)
 
         dh_second_part = AES.new(sym_key, AES.MODE_CTR,
-            counter=Counter.new(128, initial_value=0)).decrypt(sym_enc)
+                                 counter=Counter.new(128, initial_value=0)).decrypt(sym_enc)
 
         dh = dh_first_part + dh_second_part
 
@@ -494,28 +496,20 @@ class CircuitManager:
         xy = privkey.compute(pubkey_X)
         xb = NTorKey(ntor_onion_key.secret).compute(pubkey_X)
 
-        secret_input = (xy + xb + node_id + # Node ID? We are an MITM box.
-                    pubkey_B +
-                    pubkey_X +
-                    pubkey_Y +
-                    PROTOID)
+        # Node ID? We are an MITM box.
+        secret_input = xy + xb + node_id + pubkey_B + pubkey_X + pubkey_Y + PROTOID
 
         verify = ntor_H_verify(secret_input)
 
-        auth_input = (verify +
-                  node_id +
-                  pubkey_B +
-                  pubkey_Y +
-                  pubkey_X +
-                  PROTOID +
-                  b"Server")
+        auth_input = verify + node_id + pubkey_B + pubkey_Y + pubkey_X + PROTOID + b"Server"
 
         privkey.set_auth_value(ntor_H_mac(auth_input))
 
         K = kdf_ntor(secret_input, 2*HASH_LEN+2*KEY_LEN)
 
         ciphers = make_or_ciphers((None, K[:HASH_LEN], K[HASH_LEN:2*HASH_LEN],
-            K[2*HASH_LEN:2*HASH_LEN+KEY_LEN], K[2*HASH_LEN+KEY_LEN:2*HASH_LEN+2*KEY_LEN]))
+                                   K[2*HASH_LEN:2*HASH_LEN+KEY_LEN],
+                                   K[2*HASH_LEN+KEY_LEN:2*HASH_LEN+2*KEY_LEN]))
 
         X = Random.get_random_bytes(HASH_LEN)
 
@@ -553,7 +547,7 @@ class CircuitManager:
 
         if key[0] != KH:
             return (self.server_or_conn.destroy_cell(circid, ERROR_PROTOCOL),
-                self.client_or_conn.destroy_cell(circid_client, ERROR_DESTROYED))
+                    self.client_or_conn.destroy_cell(circid_client, ERROR_DESTROYED))
 
         with self.lock:
             self.circuits_server[circid] = CircuitKey(X, key[0], *ciphers)

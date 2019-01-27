@@ -125,7 +125,7 @@ class DefaultHandler(object):
 
     def on_forward_unknown_cell(self, circid, cell_content):
         import logging
-        logging.info('Received an unexpected forward cell: {}'.format(cell_content[0].encode('hex')))
+        logging.info('Received an unexpected forward cell: {}'.format(ord(cell_content[0])))
 
     def backward_cell_received(self, cell):
         circid, cell_content = self.server_or_conn.decode_circid(cell)
@@ -188,4 +188,4 @@ class DefaultHandler(object):
 
     def on_backward_unknown_cell(self, circid, cell_content):
         import logging
-        logging.info('Received an unexpected backward cell: {}'.format(cell_content[0].encode('hex')))
+        logging.info('Received an unexpected backward cell: {}'.format(ord(cell_content[0])))
