@@ -14,13 +14,12 @@ from gnutls.connection import TLSContext, X509Credentials
 from gnutls.constants import X509_FMT_DER
 from gnutls.errors import GNUTLSError
 
-from Crypto.Hash import SHA1
 from Crypto.PublicKey import RSA
 
 from mesona.proxy import MITMServer, MITMHandler, MITMSettings, send_range_safe, is_ipv6_address
 
 import oregano
-from oregano.crypto import (encode_raw_rsa_pubkey, encode_raw_rsa_pubkey_pem,
+from oregano.crypto import (encode_raw_rsa_pubkey_pem, pubkey_fingerprint,
                             sign_router_descriptor, NTorKey)
 from oregano.onion import *
 
@@ -131,9 +130,7 @@ class ORMITMServer(MITMServer):
                                                                 self.fingerprint))
 
     def make_digest_fingerprint(self):
-        pubkey = encode_raw_rsa_pubkey(self.identity_pubkey)
-
-        digest = SHA1.new(pubkey).hexdigest().upper()
+        digest = pubkey_fingerprint(self.identity_pubkey).upper()
         fingerprint = [digest[i*4:i*4+4] for i in range(HASH_LEN / 2)]
 
         return ' '.join(fingerprint)
@@ -268,16 +265,14 @@ class ORMITMHandler(MITMHandler):
             raise ORError("Link certificate is incorrectly signed")
 
         try:
-            server_identity = RSA.import_key(id_cert)
+            server_key = RSA.import_key(id_cert)
         except (ValueError, IndexError, TypeError):
             raise ORError("Error in RSA key parsing")
 
         if self.server.config.server_fingerprint:
             server_fingerprint = self.server.config.server_fingerprint.strip().lower()
 
-            server_key = encode_raw_rsa_pubkey(server_identity)
-
-            remote_fingerprint = SHA1.new(server_key).hexdigest()
+            remote_fingerprint = pubkey_fingerprint(server_key)
 
             if remote_fingerprint != server_fingerprint:
                 raise ORError("Server ID certificate does not match the configured fingerprint: "

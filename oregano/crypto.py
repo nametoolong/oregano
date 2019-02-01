@@ -91,6 +91,9 @@ def encode_raw_rsa_pubkey_pem(key):
 def sign_router_descriptor(key, descriptor):
     return PEM.encode(LowLevelSignature(key).sign(SHA1.new(descriptor).digest()), "SIGNATURE")
 
+def pubkey_fingerprint(key):
+    return SHA1.new(encode_raw_rsa_pubkey(key)).hexdigest()
+
 KEY_LEN = 16
 HASH_LEN = 20
 
@@ -125,7 +128,7 @@ def ntor_H_mac(msg):
     return ntor_H(msg, T_MAC)
 
 def ntor_H_verify(msg):
-    return ntor_H(msg, tweak=T_VERIFY)
+    return ntor_H(msg, T_VERIFY)
 
 def bad_result(r):
     assert len(r) == 32
