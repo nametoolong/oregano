@@ -9,18 +9,26 @@ import threading
 import time
 import traceback
 
+from cryptography.exceptions import UnsupportedAlgorithm
+from cryptography.hazmat.primitives.asymmetric.rsa import RSAPrivateKey, RSAPublicKey
+from cryptography.hazmat.primitives.serialization import load_pem_private_key
+from cryptography.x509 import load_der_x509_certificate
+
 from gnutls.crypto import X509Certificate, X509PrivateKey
 from gnutls.connection import TLSContext, X509Credentials
 from gnutls.constants import X509_FMT_DER
 from gnutls.errors import GNUTLSError
 
-from Crypto.PublicKey import RSA
-
 from mesona.proxy import MITMServer, MITMHandler, MITMSettings, send_range_safe, is_ipv6_address
 
 import oregano
-from oregano.crypto import (encode_raw_rsa_pubkey_pem, pubkey_fingerprint,
-                            sign_router_descriptor, NTorKey)
+from oregano.crypto import (
+    _default_backend,
+    encode_raw_rsa_pubkey_pem,
+    pubkey_fingerprint,
+    sign_router_descriptor,
+    NTorKey
+)
 from oregano.onion import *
 
 HASH_LEN = 20
@@ -61,26 +69,49 @@ class ORMITMServer(MITMServer):
         if is_ipv6_address(self.config.listen_address):
             self.address_family = socket.AF_INET6
 
-        with open(self.config.cert, 'rb') as f:
-            self.encoded_cert = f.read()
+        with open(self.config.cert, 'rb') as keyfile:
+            self.encoded_cert = keyfile.read()
 
-        with open(self.config.key, 'r') as f:
-            self.key = f.read()
+        with open(self.config.key, 'r') as keyfile:
+            self.key = keyfile.read()
 
-        with open(self.config.onion_secret_key, 'r') as f:
-            self.onion_secret_key = f.read()
+        with open(self.config.onion_secret_key, 'r') as keyfile:
+            self.onion_secret_key = keyfile.read()
 
         self.set_handler()
 
         self.server_context = TLSContext(X509Credentials(
             X509Certificate(self.encoded_cert, format=X509_FMT_DER),
-            X509PrivateKey(self.key)), config.priority_string_as_server)
-        self.client_context = TLSContext(X509Credentials(), config.priority_string_as_client)
+            X509PrivateKey(self.key)), self.config.priority_string_as_server)
+        self.client_context = TLSContext(X509Credentials(), self.config.priority_string_as_client)
 
-        self.identity_pubkey = RSA.import_key(self.encoded_cert)
-        self.identity_privkey = RSA.import_key(self.key)
+        self.identity_pubkey = load_der_x509_certificate(
+            self.encoded_cert, backend=_default_backend).public_key()
+        self.identity_privkey = load_pem_private_key(
+            self.key, password=None, backend=_default_backend)
+        self.onion_privkey = load_pem_private_key(
+            self.onion_secret_key, password=None, backend=_default_backend)
 
-        self.onion_privkey = RSA.import_key(self.onion_secret_key)
+        if not isinstance(self.identity_pubkey, RSAPublicKey):
+            raise RuntimeError(
+                "Certificate of instance {} does not have an RSA key".format(
+                    self.config.listen_address
+                )
+            )
+
+        if not isinstance(self.identity_privkey, RSAPrivateKey):
+            raise RuntimeError(
+                "Key of instance {} is not an RSA key".format(
+                    self.config.listen_address
+                )
+            )
+
+        if not isinstance(self.onion_privkey, RSAPrivateKey):
+            raise RuntimeError(
+                "Onion key of instance {} is not an RSA key".format(
+                    self.config.listen_address
+                )
+            )
 
         ntor_onion_secret_key = base64.b64decode(self.config.ntor_onion_secret_key.strip())
         self.ntor_onion_key = NTorOnionKey(ntor_onion_secret_key,
@@ -92,7 +123,7 @@ class ORMITMServer(MITMServer):
 
         self.print_fingerprint()
 
-        SocketServer.ThreadingTCPServer.__init__(self, config.listen_address,
+        SocketServer.ThreadingTCPServer.__init__(self, self.config.listen_address,
                                                  ORMITMHandler, bind_and_activate)
 
     def create_bridge_descriptor(self):
@@ -105,8 +136,8 @@ class ORMITMServer(MITMServer):
         bandwidth = "{:d} {:d} {:d}".format(self.config.announced_bandwidth[0],
                                             self.config.announced_bandwidth[1], 0)
 
-        encoded_key = encode_raw_rsa_pubkey_pem(self.identity_pubkey)
-        encoded_onion_key = encode_raw_rsa_pubkey_pem(self.onion_privkey)
+        encoded_key = encode_raw_rsa_pubkey_pem(self.identity_pubkey).strip()
+        encoded_onion_key = encode_raw_rsa_pubkey_pem(self.onion_privkey).strip()
 
         desc = DESCRIPTOR_TEMPLATE.format(
             nickname=nickname,
@@ -126,8 +157,8 @@ class ORMITMServer(MITMServer):
         return desc + router_signature + "\n"
 
     def print_fingerprint(self):
-        logging.info("Instance on {} has fingerprint {}".format(config.listen_address,
-                                                                self.fingerprint))
+        logging.info("Instance on %s has fingerprint %s",
+                     self.config.listen_address, self.fingerprint)
 
     def make_digest_fingerprint(self):
         digest = pubkey_fingerprint(self.identity_pubkey).upper()
@@ -142,8 +173,8 @@ class ORMITMServer(MITMServer):
         if hasattr(self.config, "handler") and self.config.handler is not None:
             self.handler = self.config.handler
         else:
-            import oregano.handler
-            self.handler = oregano.handler.DefaultHandler
+            from oregano.handler import DefaultHandler
+            self.handler = DefaultHandler
 
     def make_handler(self, link):
         return self.handler(link)
@@ -153,11 +184,11 @@ class ORMITMServer(MITMServer):
         exc_type = type(exc)
 
         if exc_type == ORError:
-            logging.warning("A protocol error occurred: " + str(exc))
+            logging.warning("A protocol error occurred: %s", str(exc))
         elif exc_type == RuntimeError:
-            logging.warning("A runtime error occurred: " + str(exc))
+            logging.warning("A runtime error occurred: %s", str(exc))
         elif not self.config.suppress_exceptions:
-            logging.error("An exception occurred: " + traceback.format_exc())
+            logging.error("An exception occurred: %s", traceback.format_exc())
 
 class ORForwardingThread(threading.Thread):
     def __init__(self, request):
@@ -204,11 +235,19 @@ class ORMITMHandler(MITMHandler):
 
         self.send_to_session(self.client_or_conn.versions_cell())
 
-        self.send_to_session(self.client_or_conn.certs_cell([(1, self.server.encoded_cert), (2, self.server.encoded_cert)]))
+        self.send_to_session(self.client_or_conn.certs_cell(
+            [
+                (1, self.server.encoded_cert),
+                (2, self.server.encoded_cert)
+            ]
+        ))
 
         self.send_to_session(self.client_or_conn.auth_challenge_cell())
 
-        self.send_to_session(self.client_or_conn.netinfo_cell(self.server.config.address, self.client_address[0]))
+        self.send_to_session(self.client_or_conn.netinfo_cell(
+            self.server.config.address,
+            self.client_address[0]
+        ))
 
         self.client_or_conn.process_netinfo_cell(self.client_or_conn.get_one_cell())
 
@@ -229,7 +268,10 @@ class ORMITMHandler(MITMHandler):
 
         self.server_or_conn.process_netinfo_cell(self.server_or_conn.get_one_cell())
 
-        self.send_to_remote(self.server_or_conn.netinfo_cell(self.server.config.address, self.server.config.server_address[0]))
+        self.send_to_remote(self.server_or_conn.netinfo_cell(
+            self.server.config.address,
+            self.server.config.server_address[0]
+        ))
 
     def verify_server_certs(self, certs_cell):
         tls_link_cert = self.remote.peer_certificate.export(X509_FMT_DER)
@@ -265,9 +307,14 @@ class ORMITMHandler(MITMHandler):
             raise ORError("Link certificate is incorrectly signed")
 
         try:
-            server_key = RSA.import_key(id_cert)
-        except (ValueError, IndexError, TypeError):
+            server_key = load_der_x509_certificate(
+                id_cert, backend=_default_backend
+            ).public_key()
+        except (ValueError, TypeError, UnsupportedAlgorithm):
             raise ORError("Error in RSA key parsing")
+
+        if not isinstance(server_key, RSAPublicKey):
+            raise ORError("Server identity key is not a RSA key")
 
         if self.server.config.server_fingerprint:
             server_fingerprint = self.server.config.server_fingerprint.strip().lower()
@@ -286,17 +333,19 @@ class ORMITMHandler(MITMHandler):
     def setup(self):
         self.handshake_with_client()
 
-        if self.server.config.use_length_hiding_with_client and not self.session.can_use_length_hiding():
+        if (self.server.config.use_length_hiding_with_client and
+                not self.session.can_use_length_hiding()):
             raise RuntimeError("Can't use length hiding with client")
 
         self.or_handshake_with_client()
 
         try:
             self.build_server_connection()
-        except (GNUTLSError, socket.error) as e:
-            raise ORError("Could not connect to server: " + str(e))
+        except (GNUTLSError, socket.error) as exn:
+            raise ORError("Could not connect to server: " + str(exn))
 
-        if self.server.config.use_length_hiding_with_server and not self.remote.can_use_length_hiding():
+        if (self.server.config.use_length_hiding_with_server and
+                not self.remote.can_use_length_hiding()):
             raise RuntimeError("Can't use length hiding with server")
 
         self.or_handshake_with_server()
@@ -329,27 +378,27 @@ if __name__ == '__main__':
     servers = []
     threads = []
 
-    def sigint_received(signum, frame):
+    def sigint_received(*args):
         for server in servers:
             server.shutdown()
 
     for key, setting in settings.items():
-        config = MITMSettings(setting["server_address"], setting["listen_address"])
-        config.__dict__.update(default_settings)
-        config.__dict__.update(setting)
+        _config = MITMSettings(setting["server_address"], setting["listen_address"])
+        _config.__dict__.update(default_settings)
+        _config.__dict__.update(setting)
 
-        server = ORMITMServer(config)
+        _server = ORMITMServer(_config)
 
-        logging.info("Starting listener on {} which forwards to {}".format(config.listen_address,
-                                                                           config.server_address))
+        logging.info("Starting listener on %s which forwards to %s",
+                     _config.listen_address, _config.server_address)
 
-        thread = threading.Thread(target=server.serve_forever)
-        thread.daemon = True
+        _thread = threading.Thread(target=_server.serve_forever)
+        _thread.daemon = True
 
-        thread.start()
+        _thread.start()
 
-        servers.append(server)
-        threads.append(thread)
+        servers.append(_server)
+        threads.append(_thread)
 
     signal.signal(signal.SIGINT, sigint_received)
 

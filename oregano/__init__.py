@@ -1,1 +1,3 @@
-__version__ = "0.1.1"
+'''MITM proxy for Tor.'''
+
+__version__ = "0.2.0"

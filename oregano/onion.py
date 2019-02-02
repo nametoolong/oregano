@@ -4,12 +4,20 @@ import random
 import threading
 import time
 
-from Crypto import Random
-from Crypto.Cipher import AES, PKCS1_OAEP
-from Crypto.Hash import SHA1
-from Crypto.Util import Counter
+from oregano.crypto import (
+    KEY_LEN,
+    HASH_LEN,
 
-from oregano.crypto import *
+    EncodedDHPublicKey,
+    NTorKey,
+
+    tap_handshake,
+    ntor_handshake,
+
+    kdf_tor,
+    make_or_ciphers,
+    make_random_bytes
+)
 
 COMMAND_PADDING = "\x00"
 COMMAND_CREATE = "\x01"
@@ -42,14 +50,6 @@ REASON_DONE = "\x06"
 
 PAYLOAD_LEN = 509
 MAX_DATA_LEN = PAYLOAD_LEN - 11
-
-PK_ENC_LEN = 128
-PK_PAD_LEN = 42
-TAP_C_HANDSHAKE_LEN = DH_LEN + KEY_LEN + PK_PAD_LEN
-
-NODE_ID_LENGTH = 20
-G_LENGTH = 32
-H_LENGTH = 32
 
 FINISHED = 0
 INJECTED = 1
@@ -273,7 +273,9 @@ class ORConnImpl:
     def auth_challenge_cell(self):
         payload = "\x00" * 32 + "\x00\x00"
 
-        return self.add_circid(0, COMMAND_AUTH_CHALLENGE + struct.pack("!H", len(payload)) + payload)
+        return self.add_circid(
+            0,
+            COMMAND_AUTH_CHALLENGE + struct.pack("!H", len(payload)) + payload)
 
     def encode_address(self, address):
         try:
@@ -324,19 +326,6 @@ class ORConnImpl:
     def vpadding_cell(self, payload):
         return self.add_circid(0, COMMAND_VPADDING + struct.pack("!H", len(payload)) + payload)
 
-def make_or_ciphers(key):
-    Df = key[1]
-    Db = key[2]
-    Kf = key[3]
-    Kb = key[4]
-
-    Dffunc = SHA1.new(Df)
-    Dbfunc = SHA1.new(Db)
-    Kffunc = AES.new(Kf, AES.MODE_CTR, counter=Counter.new(128, initial_value=0))
-    Kbfunc = AES.new(Kb, AES.MODE_CTR, counter=Counter.new(128, initial_value=0))
-
-    return (Dffunc, Dbfunc, Kffunc, Kbfunc)
-
 def encrypt_onion_skin(content_no_digest, key, direction='f'):
     if direction == 'f':
         Dfunc = key.Dffunc
@@ -348,9 +337,10 @@ def encrypt_onion_skin(content_no_digest, key, direction='f'):
         raise ORError("Unrecognized direction {}".format(direction))
 
     Dfunc.update(content_no_digest)
-    digest = Dfunc.digest()[:4]
+    temp_Dfunc = Dfunc.copy()
+    digest = temp_Dfunc.finalize()[:4]
     content = content_no_digest[0:5] + digest + content_no_digest[9:]
-    payload = Kfunc.encrypt(content)
+    payload = Kfunc.update(content)
 
     return payload
 
@@ -401,7 +391,7 @@ class CircuitManager:
             return (self.client_or_conn.destroy_cell(circid, ERROR_RESOURCELIMIT), 0)
 
         X = payload[:HASH_LEN]
-        Y = Random.get_random_bytes(HASH_LEN)
+        Y = make_random_bytes(HASH_LEN)
 
         key = kdf_tor(X + Y)
 
@@ -428,30 +418,14 @@ class CircuitManager:
         if len(self.circuits_client) >= self.MAX_CIRCUITS_PER_CLIENT:
             return (self.client_or_conn.destroy_cell(circid, ERROR_RESOURCELIMIT), None)
 
-        pk_enc = payload[:PK_ENC_LEN]
-        sym_enc = payload[PK_ENC_LEN:TAP_C_HANDSHAKE_LEN]
-
         try:
-            decrypted = PKCS1_OAEP.new(onion_key).decrypt(pk_enc)
-            sym_key = decrypted[:KEY_LEN]
-            dh_first_part = decrypted[KEY_LEN:PK_ENC_LEN]
+            privkey, key = tap_handshake(payload, onion_key)
         except ValueError:
             return (self.client_or_conn.destroy_cell(circid, ERROR_PROTOCOL), None)
 
-        dh_second_part = AES.new(sym_key, AES.MODE_CTR,
-                                 counter=Counter.new(128, initial_value=0)).decrypt(sym_enc)
-
-        dh = dh_first_part + dh_second_part
-
-        our_secret = DiffieHellman()
-
-        shared_key = our_secret.compute(dh)
-
-        key = kdf_tor(shared_key)
-
         ciphers = make_or_ciphers(key)
 
-        X = Random.get_random_bytes(HASH_LEN)
+        X = make_random_bytes(HASH_LEN)
 
         with self.lock:
             if circid in self.circuits_client:
@@ -459,7 +433,7 @@ class CircuitManager:
 
             circid_server = self.create_circid_for_server()
 
-            self.circuits_client[circid] = CircuitKey(our_secret, key[0], *ciphers)
+            self.circuits_client[circid] = CircuitKey(privkey, key[0], *ciphers)
             self.circuits_server[circid_server] = CircuitKey(X, None, None, None, None, None)
 
             self.map_client_to_server[circid] = circid_server
@@ -483,37 +457,16 @@ class CircuitManager:
 
         hdata = payload[4:4+hlen]
 
-        node_id = hdata[:NODE_ID_LENGTH]
-        keyid = hdata[NODE_ID_LENGTH:NODE_ID_LENGTH+H_LENGTH]
-
-        if ntor_onion_key.public != keyid:
+        try:
+            privkey, K = ntor_handshake(hdata, ntor_onion_key)
+        except ValueError:
             return (self.client_or_conn.destroy_cell(circid, ERROR_PROTOCOL), None)
-
-        pubkey_X = hdata[NODE_ID_LENGTH+H_LENGTH:NODE_ID_LENGTH+H_LENGTH+G_LENGTH]
-
-        privkey = NTorKey()
-        pubkey_Y = privkey.get_public()
-        pubkey_B = ntor_onion_key.public
-
-        xy = privkey.compute(pubkey_X)
-        xb = NTorKey(ntor_onion_key.secret).compute(pubkey_X)
-
-        # Node ID? We are an MITM box.
-        secret_input = xy + xb + node_id + pubkey_B + pubkey_X + pubkey_Y + PROTOID
-
-        verify = ntor_H_verify(secret_input)
-
-        auth_input = verify + node_id + pubkey_B + pubkey_Y + pubkey_X + PROTOID + b"Server"
-
-        privkey.set_auth_value(ntor_H_mac(auth_input))
-
-        K = kdf_ntor(secret_input, 2*HASH_LEN+2*KEY_LEN)
 
         ciphers = make_or_ciphers((None, K[:HASH_LEN], K[HASH_LEN:2*HASH_LEN],
                                    K[2*HASH_LEN:2*HASH_LEN+KEY_LEN],
                                    K[2*HASH_LEN+KEY_LEN:2*HASH_LEN+2*KEY_LEN]))
 
-        X = Random.get_random_bytes(HASH_LEN)
+        X = make_random_bytes(HASH_LEN)
 
         with self.lock:
             if circid in self.circuits_client:
@@ -560,20 +513,38 @@ class CircuitManager:
 
             key_client = self.circuits_client[circid_client]
 
-            if isinstance(key_client.our_material, DiffieHellman):
-                client_Y = key_client.our_material.get_public()
+            if isinstance(key_client.our_material, EncodedDHPublicKey):
+                client_Y = key_client.our_material.public
                 client_KH = key_client.KH
-                return (None, self.client_or_conn.created_cell(circid_client, client_Y + client_KH))
+                return (
+                    None,
+                    self.client_or_conn.created_cell(
+                        circid_client,
+                        client_Y + client_KH
+                    )
+                )
             elif isinstance(key_client.our_material, NTorKey):
                 client_Y = key_client.our_material.get_public()
                 client_auth = key_client.our_material.get_auth_value()
                 hs_data = client_Y + client_auth
                 hs_len = struct.pack("!H", len(hs_data))
-                return (None, self.client_or_conn.created2_cell(circid_client, hs_len + hs_data))
+                return (
+                    None,
+                    self.client_or_conn.created2_cell(
+                        circid_client,
+                        hs_len + hs_data
+                    )
+                )
             elif isinstance(key_client.our_material, basestring):
                 client_Y = key_client.our_material
                 client_KH = key_client.KH
-                return (None, self.client_or_conn.created_fast_cell(circid_client, client_Y + client_KH))
+                return (
+                    None,
+                    self.client_or_conn.created_fast_cell(
+                        circid_client,
+                        client_Y + client_KH
+                    )
+                )
             else:
                 raise RuntimeError("Impossible key type")
 
@@ -640,11 +611,16 @@ class CircuitManager:
         command = cell_content[0]
         payload = cell_content[1:]
 
-        content = key_client.Kffunc.decrypt(payload)
+        content = key_client.Kffunc.update(payload)
 
         if content[1:3] != "\x00\x00": # not recognized
-            new_payload = key_server.Kffunc.encrypt(content)
-            return (FINISHED, None, self.server_or_conn.add_circid(circid_server, command + new_payload))
+            new_payload = key_server.Kffunc.update(content)
+            return (FINISHED,
+                    None,
+                    self.server_or_conn.add_circid(
+                        circid_server,
+                        command + new_payload
+                    ))
 
         temp_Dffunc = key_client.Dffunc.copy()
 
@@ -652,7 +628,8 @@ class CircuitManager:
         content_no_digest = content[0:5] + "\x00\x00\x00\x00" + content[9:]
 
         temp_Dffunc.update(content_no_digest)
-        computed_digest = temp_Dffunc.digest()[:4]
+        finalizing_Dffunc = temp_Dffunc.copy()
+        computed_digest = finalizing_Dffunc.finalize()[:4]
 
         if cell_digest == computed_digest: # recognized
             key_client.Dffunc = temp_Dffunc
@@ -674,10 +651,20 @@ class CircuitManager:
                 key_client.add_dir_stream(streamid)
 
             new_payload = encrypt_onion_skin(content_no_digest, key_server, direction='f')
-            return (FINISHED, None, self.server_or_conn.add_circid(circid_server, command + new_payload))
+            return (FINISHED,
+                    None,
+                    self.server_or_conn.add_circid(
+                        circid_server,
+                        command + new_payload
+                    ))
         else:
-            new_payload = key_server.Kffunc.encrypt(content)
-            return (FINISHED, None, self.server_or_conn.add_circid(circid_server, command + new_payload))
+            new_payload = key_server.Kffunc.update(content)
+            return (FINISHED,
+                    None,
+                    self.server_or_conn.add_circid(
+                        circid_server,
+                        command + new_payload
+                    ))
 
     def relay_backward(self, circid, cell_content):
         with self.lock:
@@ -700,10 +687,10 @@ class CircuitManager:
         command = cell_content[0]
         payload = cell_content[1:]
 
-        content = key_server.Kbfunc.decrypt(payload)
+        content = key_server.Kbfunc.update(payload)
 
         if content[1:3] != "\x00\x00": # not recognized
-            new_payload = key_client.Kbfunc.encrypt(content)
+            new_payload = key_client.Kbfunc.update(content)
             return (None, self.client_or_conn.add_circid(circid_client, command + new_payload))
 
         temp_Dbfunc = key_server.Dbfunc.copy()
@@ -712,7 +699,8 @@ class CircuitManager:
         content_no_digest = content[0:5] + "\x00\x00\x00\x00" + content[9:]
 
         temp_Dbfunc.update(content_no_digest)
-        computed_digest = temp_Dbfunc.digest()[:4]
+        finalizing_Dbfunc = temp_Dbfunc.copy()
+        computed_digest = finalizing_Dbfunc.finalize()[:4]
 
         if cell_digest == computed_digest: # recognized
             key_server.Dbfunc = temp_Dbfunc
@@ -728,7 +716,7 @@ class CircuitManager:
             new_payload = encrypt_onion_skin(content_no_digest, key_client, direction='b')
             return (None, self.client_or_conn.add_circid(circid_client, command + new_payload))
         else:
-            new_payload = key_client.Kbfunc.encrypt(content)
+            new_payload = key_client.Kbfunc.update(content)
             return (None, self.client_or_conn.add_circid(circid_client, command + new_payload))
 
     def create_descriptor_response(self, descriptor, circid, circid_server, streamid):
@@ -756,38 +744,52 @@ class CircuitManager:
 
             if not stream_connected:
                 cells_for_client.append(
-                    self.client_or_conn.relay_cell(circid,
+                    self.client_or_conn.relay_cell(
+                        circid,
                         encrypt_onion_skin(
                             build_relay_cell(streamid, '', command=RELAY_CONNECTED),
                             key_client,
-                            direction='b')))
+                            direction='b'
+                        )
+                    )
+                )
 
             cells_for_client.extend(
-                [self.client_or_conn.relay_cell(circid,
+                [self.client_or_conn.relay_cell(
+                    circid,
                     encrypt_onion_skin(
                         build_relay_cell(streamid, cell_data),
                         key_client,
-                        direction='b'))
-                 for cell_data in data])
+                        direction='b'
+                    ))
+                 for cell_data in data]
+            )
 
             cells_for_client.append(
-                self.client_or_conn.relay_cell(circid,
+                self.client_or_conn.relay_cell(
+                    circid,
                     encrypt_onion_skin(
                         build_relay_cell(streamid, REASON_DONE, command=RELAY_END),
                         key_client,
-                        direction='b')))
+                        direction='b'
+                    )
+                )
+            )
 
         else:
             cells_for_client = ()
 
         if key_server:
             cells_for_server = (
-                self.server_or_conn.relay_cell(circid_server,
+                self.server_or_conn.relay_cell(
+                    circid_server,
                     encrypt_onion_skin(
                         build_relay_cell(streamid, REASON_DONE, command=RELAY_END),
                         key_server,
                         direction='f'
-                        )), )
+                    )
+                ),
+            )
         else:
             cells_for_server = ()
 

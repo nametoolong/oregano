@@ -25,8 +25,10 @@ class DefaultHandler(object):
             with self.circ_manager.lock:
                 streamid, circid, circid_server, = result[1:]
 
-                response_for_client, response_for_server = self.circ_manager.create_descriptor_response(
-                    self.server.dir_identity_response, circid, circid_server, streamid)
+                (response_for_client,
+                 response_for_server) = self.circ_manager.create_descriptor_response(
+                     self.server.dir_identity_response,
+                     circid, circid_server, streamid)
 
                 for response in response_for_client:
                     self.send_to_session(response)
@@ -35,7 +37,8 @@ class DefaultHandler(object):
                     self.send_to_remote(response)
 
     def process_backward_relay_cell(self, circid, cell_content):
-        response_for_server, response_for_client = self.circ_manager.relay_backward(circid, cell_content)
+        (response_for_server,
+         response_for_client) = self.circ_manager.relay_backward(circid, cell_content)
 
         if response_for_server:
             self.send_to_remote(response_for_server)
@@ -74,8 +77,11 @@ class DefaultHandler(object):
     def on_forward_create_cell(self, circid, cell_content):
         payload = cell_content[1:]
 
-        response_for_client, response_for_server = self.circ_manager.create(circid, payload, self.server.onion_privkey)
-        
+        (response_for_client,
+         response_for_server) = self.circ_manager.create(
+             circid, payload,
+             self.server.onion_privkey)
+
         if response_for_client:
             self.send_to_session(response_for_client)
 
@@ -108,7 +114,10 @@ class DefaultHandler(object):
     def on_forward_create2_cell(self, circid, cell_content):
         payload = cell_content[1:]
 
-        response_for_client, response_for_server = self.circ_manager.create2(circid, payload, self.server.ntor_onion_key)
+        (response_for_client,
+         response_for_server) = self.circ_manager.create2(
+             circid, payload,
+             self.server.ntor_onion_key)
 
         if response_for_client:
             self.send_to_session(response_for_client)
@@ -125,7 +134,7 @@ class DefaultHandler(object):
 
     def on_forward_unknown_cell(self, circid, cell_content):
         import logging
-        logging.info('Received an unexpected forward cell: {}'.format(ord(cell_content[0])))
+        logging.info('Received an unexpected forward cell: %s', ord(cell_content[0]))
 
     def backward_cell_received(self, cell):
         circid, cell_content = self.server_or_conn.decode_circid(cell)
@@ -188,4 +197,4 @@ class DefaultHandler(object):
 
     def on_backward_unknown_cell(self, circid, cell_content):
         import logging
-        logging.info('Received an unexpected backward cell: {}'.format(ord(cell_content[0])))
+        logging.info('Received an unexpected backward cell: %s', ord(cell_content[0]))
