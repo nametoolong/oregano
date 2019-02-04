@@ -22,7 +22,7 @@ Designed as a research software, Oregano has more uses than research:
 
   With GnuTLS's length hiding APIs, you can hide your flow characteristics in extra padding.
 
-* Go through your corporate firewall
+* Go through your corporate firewall, or even GFW
 
   Even if your working place has a sophisticated Israeli firewall specially tuned for detecting Tor traffic, GnuTLS's length hiding capability and Oregano's ability to inject anything into a link help you sneak through it. See [PIPIResistanceHandler](https://github.com/nametoolong/oregano/blob/master/oregano/configuration.py#L64) for an example.
 
