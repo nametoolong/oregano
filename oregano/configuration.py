@@ -5,6 +5,8 @@ default_settings = {
     "priority_string_as_server": "NORMAL",
     "priority_string_as_client": "NORMAL",
     "verify_server_certs": True,
+    "allow_link_cert_mismatch": False,
+    "log_server_fingerprint": False,
     "use_length_hiding_with_server": False,
     "use_length_hiding_with_client": False,
     "padding_range_with_server": (0, 0),
@@ -161,11 +163,18 @@ NONE:
         # whether to verify the server's CERTS
         "verify_server_certs": True,
 
+        # whether to allow actual TLS link certificate to differ from that in CERTS cell
+        "allow_link_cert_mismatch": False,
+
         # the server's OR fingerprint
         # set to None to disable verification
         # for example
         # "server_fingerprint": "565036B6C1509391E2D6C84F02D76A4BFE4CFE8A",
         "server_fingerprint": None,
+
+        # whether to log the server's OR fingerprint every connection
+        # can be annoying but is useful when debugging
+        "log_server_fingerprint": False,
 
         # whether to use length hiding when talking to the upstream server
         "use_length_hiding_with_server": True,

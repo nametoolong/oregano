@@ -298,13 +298,14 @@ class ORMITMHandler(MITMHandler):
         if not id_cert:
             raise ORError("Missing ID certificate in server CERTS cell")
 
-        if link_cert != tls_link_cert:
-            raise ORError("Link certificate in CERTS cell does not match TLS link certificate")
+        if not self.server.config.allow_link_cert_mismatch:
+            if link_cert != tls_link_cert:
+                raise ORError("Link certificate in CERTS cell does not match TLS link certificate")
 
-        try:
-            self.remote.peer_certificate.check_issuer(X509Certificate(id_cert, format=X509_FMT_DER))
-        except GNUTLSError:
-            raise ORError("Link certificate is incorrectly signed")
+            try:
+                self.remote.peer_certificate.check_issuer(X509Certificate(id_cert, format=X509_FMT_DER))
+            except GNUTLSError:
+                raise ORError("Link certificate is incorrectly signed")
 
         try:
             server_key = load_der_x509_certificate(
@@ -316,15 +317,27 @@ class ORMITMHandler(MITMHandler):
         if not isinstance(server_key, RSAPublicKey):
             raise ORError("Server identity key is not a RSA key")
 
-        if self.server.config.server_fingerprint:
-            server_fingerprint = self.server.config.server_fingerprint.strip().lower()
+        if (self.server.config.server_fingerprint or
+                self.server.config.log_server_fingerprint):
 
             remote_fingerprint = pubkey_fingerprint(server_key)
 
-            if remote_fingerprint != server_fingerprint:
-                raise ORError("Server ID certificate does not match the configured fingerprint: "
-                              "expected {} but got {}".format(server_fingerprint.upper(),
-                                                              remote_fingerprint.upper()))
+            if self.server.config.server_fingerprint:
+                server_fingerprint = self.server.config.server_fingerprint.strip().lower()
+
+                if remote_fingerprint != server_fingerprint:
+                    raise ORError(
+                        "Server ID certificate does not match the configured fingerprint: "
+                        "expected {} but got {}".format(
+                            server_fingerprint.upper(),
+                            remote_fingerprint.upper()
+                        )
+                    )
+
+            if self.server.config.log_server_fingerprint:
+                logging.info("Router %s has fingerprint %s",
+                             self.server.config.server_address,
+                             remote_fingerprint.upper())
 
     def start_forwarding_thread(self):
         self.forwarding_thread = ORForwardingThread(self)
