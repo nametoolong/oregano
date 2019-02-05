@@ -83,7 +83,14 @@ class ORMITMServer(MITMServer):
         self.server_context = TLSContext(X509Credentials(
             X509Certificate(self.encoded_cert, format=X509_FMT_DER),
             X509PrivateKey(self.key)), self.config.priority_string_as_server)
-        self.client_context = TLSContext(X509Credentials(), self.config.priority_string_as_client)
+
+        if (hasattr(self.config, "client_tls_credentials") and
+                self.config.client_tls_credentials is not None):
+            self.tls_credentials = self.config.client_tls_credentials
+        else:
+            self.tls_credentials = X509Credentials()
+
+        self.client_context = TLSContext(self.tls_credentials, self.config.priority_string_as_client)
 
         self.identity_pubkey = load_der_x509_certificate(
             self.encoded_cert, backend=_default_backend).public_key()
@@ -298,12 +305,24 @@ class ORMITMHandler(MITMHandler):
         if not id_cert:
             raise ORError("Missing ID certificate in server CERTS cell")
 
+        try:
+            link_cert_object = X509Certificate(link_cert, format=X509_FMT_DER)
+            self.server.tls_credentials.check_certificate(link_cert_object)
+        except GNUTLSError as exn:
+            raise ORError("Link certificate is invalid: " + str(exn))
+
+        try:
+            id_cert_object = X509Certificate(id_cert, format=X509_FMT_DER)
+            self.server.tls_credentials.check_certificate(id_cert_object)
+        except GNUTLSError as exn:
+            raise ORError("ID certificate is invalid: " + str(exn))
+
         if not self.server.config.allow_link_cert_mismatch:
             if link_cert != tls_link_cert:
                 raise ORError("Link certificate in CERTS cell does not match TLS link certificate")
 
             try:
-                self.remote.peer_certificate.check_issuer(X509Certificate(id_cert, format=X509_FMT_DER))
+                self.remote.peer_certificate.check_issuer(id_cert_object)
             except GNUTLSError:
                 raise ORError("Link certificate is incorrectly signed")
 
@@ -360,6 +379,12 @@ class ORMITMHandler(MITMHandler):
         if (self.server.config.use_length_hiding_with_server and
                 not self.remote.can_use_length_hiding()):
             raise RuntimeError("Can't use length hiding with server")
+
+        if self.server.config.client_tls_credentials:
+            try:
+                self.remote.verify_peer()
+            except GNUTLSError as exn:
+                raise ORError("Server certificate validation error: " + str(exn))
 
         self.or_handshake_with_server()
 

@@ -194,6 +194,14 @@ NONE:
         # comment out this line to disable
         "handler": EvilHandler,
 
+        # the TLS credentials we use when talking to the upstream server
+        # setting this will enforce server certificate verification using those credentials
+        # don't forget to import X509Credentials and other classes before the settings dict
+        # comment out to disable
+        # for example
+        # "client_tls_credentials": X509Credentials(trusted=[X509Certificate(open("certs/ca.crt").read())]),
+        "client_tls_credentials": None,
+
         # whether to suppress exceptions during processing of request
         # note that those exceptions are really annoying
         "suppress_exceptions": True
