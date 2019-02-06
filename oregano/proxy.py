@@ -84,13 +84,13 @@ class ORMITMServer(MITMServer):
             X509Certificate(self.encoded_cert, format=X509_FMT_DER),
             X509PrivateKey(self.key)), self.config.priority_string_as_server)
 
-        if (hasattr(self.config, "client_tls_credentials") and
-                self.config.client_tls_credentials is not None):
+        if self.has_tls_client_credentials():
             self.tls_credentials = self.config.client_tls_credentials
         else:
             self.tls_credentials = X509Credentials()
 
-        self.client_context = TLSContext(self.tls_credentials, self.config.priority_string_as_client)
+        self.client_context = TLSContext(self.tls_credentials,
+                                         self.config.priority_string_as_client)
 
         self.identity_pubkey = load_der_x509_certificate(
             self.encoded_cert, backend=_default_backend).public_key()
@@ -132,6 +132,10 @@ class ORMITMServer(MITMServer):
 
         SocketServer.ThreadingTCPServer.__init__(self, self.config.listen_address,
                                                  ORMITMHandler, bind_and_activate)
+
+    def has_tls_client_credentials(self):
+        return (hasattr(self.config, "client_tls_credentials") and
+                self.config.client_tls_credentials is not None)
 
     def create_bridge_descriptor(self):
         nickname = self.config.nickname
@@ -380,7 +384,7 @@ class ORMITMHandler(MITMHandler):
                 not self.remote.can_use_length_hiding()):
             raise RuntimeError("Can't use length hiding with server")
 
-        if self.server.config.client_tls_credentials:
+        if self.server.has_tls_client_credentials():
             try:
                 self.remote.verify_peer()
             except GNUTLSError as exn:
