@@ -29,10 +29,14 @@ from oregano.crypto import (
     sign_router_descriptor,
     NTorKey
 )
-from oregano.onion import *
+from oregano.onion import (
+    check_nickname,
+    ORError,
+    ORConnImpl,
+    CircuitManager
+)
 
 HASH_LEN = 20
-CURVE25519_KEY_LEN = 32
 
 PLATFORM = "Oregano {version}".format(version=oregano.__version__)
 DESCRIPTOR_TEMPLATE = '''
@@ -184,8 +188,7 @@ class ORMITMServer(MITMServer):
         if hasattr(self.config, "handler") and self.config.handler is not None:
             self.handler = self.config.handler
         else:
-            from oregano.handler import DefaultHandler
-            self.handler = DefaultHandler
+            self.handler = oregano.handler.DefaultHandler
 
     def make_handler(self, link):
         return self.handler(link)
@@ -424,7 +427,6 @@ if __name__ == '__main__':
         for server in servers:
             server.shutdown()
 
-        import sys
         sys.exit(0)
 
     for key, setting in settings.items():

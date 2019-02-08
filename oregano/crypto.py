@@ -82,10 +82,8 @@ def sign_raw_pkcs1(key, data):
         errors = backend._consume_errors()
         backend.openssl_assert(errors[0].lib == backend._lib.ERR_LIB_RSA)
 
-        if (
-            errors[0].reason ==
-            backend._lib.RSA_R_DATA_TOO_LARGE_FOR_KEY_SIZE
-        ):
+        if (errors[0].reason ==
+                backend._lib.RSA_R_DATA_TOO_LARGE_FOR_KEY_SIZE):
             reason = "Data too long for key size."
         else:
             reason = "RSA_private_encrypt error."
