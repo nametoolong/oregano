@@ -434,10 +434,15 @@ if __name__ == '__main__':
         _config.__dict__.update(default_settings)
         _config.__dict__.update(setting)
 
-        _server = ORMITMServer(_config)
-
-        logging.info("Starting listener on %s which forwards to %s",
-                     _config.listen_address, _config.server_address)
+        try:
+            _server = ORMITMServer(_config)
+        except Exception:
+            logging.exception("Could not create server instance on %s",
+                              _config.listen_address)
+            continue
+        else:
+            logging.info("Starting listener on %s which forwards to %s",
+                         _config.listen_address, _config.server_address)
 
         _thread = threading.Thread(target=_server.serve_forever)
         _thread.daemon = True
@@ -446,6 +451,10 @@ if __name__ == '__main__':
 
         servers.append(_server)
         threads.append(_thread)
+
+    if not servers:
+        logging.critical("No server instance started, quitting")
+        sys.exit(1)
 
     signal.signal(signal.SIGINT, sigint_received)
 
