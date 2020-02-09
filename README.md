@@ -47,7 +47,7 @@ Bridge 127.0.0.1:40056
 
 * Python 2.7
 * [GnuTLS](https://gnutls.org/)
-* [python-gnutls](https://github.com/nametoolong/python-gnutls)
+* [python-gnutls](https://github.com/AGProjects/python-gnutls)
 * [cryptography](https://cryptography.io/)
 * [PySocks](https://github.com/Anorov/PySocks) (only needed when proxy is set)
 
